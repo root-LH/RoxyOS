@@ -42,6 +42,7 @@ static void cmd_help(const char *args)
     printk("  help  - Show available commands\n");
     printk("  clear - Clear the screen\n");
     printk("  echo  - Print text\n");
+    printk("  version  - Show OS version\n");
 }
 
 static void cmd_clear(const char *args)

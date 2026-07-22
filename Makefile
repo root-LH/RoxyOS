@@ -91,6 +91,9 @@ $(BUILD)/keyboard.o: kernel/keyboard.c | $(BUILD)
 $(BUILD)/shell.o: kernel/shell.c | $(BUILD)
 	$(CC) $(CFLAGS) -c $< -o $@
 
+$(BUILD)/vfs.o: kernel/vfs.c | $(BUILD)
+	$(CC) $(CFLAGS) -c $< -o $@
+
 $(BUILD)/kernel.o: kernel/kernel.c | $(BUILD)
 	$(CC) $(CFLAGS) -c $< -o $@
 
@@ -115,6 +118,7 @@ $(BUILD)/kernel.elf: \
 	$(BUILD)/timer.o \
 	$(BUILD)/keyboard.o \
 	$(BUILD)/shell.o \
+	$(BUILD)/vfs.o \
 	$(BUILD)/kernel.o | $(BUILD)
 	$(LD) $(LDFLAGS) -o $@ $^
 

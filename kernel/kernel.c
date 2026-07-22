@@ -8,6 +8,8 @@
 #include "include/keyboard.h"
 #include "include/shell.h"
 #include "include/memory.h"
+#include "include/string.h"
+#include "include/vfs.h"
 
 static void trigger_divide_error(void)
 {

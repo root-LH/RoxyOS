@@ -44,3 +44,20 @@ void *memset(void *dest, int c, size_t n)
 
     return dest;
 }
+
+char *strcpy(char *dest, const char *src)
+{
+    char *ret = dest;
+
+    while (*src)
+    {
+        *dest = *src;
+
+        dest++;
+        src++;
+    }
+
+    *dest = '\0';
+
+    return ret;
+}

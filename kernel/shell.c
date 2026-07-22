@@ -6,6 +6,7 @@
 static void cmd_help(const char *args);
 static void cmd_clear(const char *args);
 static void cmd_echo(const char *args);
+static void cmd_version(const char *args);
 
 typedef struct
 {
@@ -18,6 +19,7 @@ static command_t commands[] =
     { "help",  cmd_help  },
     { "clear", cmd_clear },
     { "echo",  cmd_echo  },
+    { "version", cmd_version }
 };
 
 static const int command_count = sizeof(commands) / sizeof(commands[0]);
@@ -53,6 +55,13 @@ static void cmd_echo(const char *args)
 {
     printk(args);
     printk("\n");
+}
+
+static void cmd_version(const char *args)
+{
+    (void)args;
+
+    printk("RoxyOS version 0.1.0\n");
 }
 
 void shell_execute(const char *cmd)

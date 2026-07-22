@@ -1,8 +1,6 @@
 #include "../include/vga.h"
 #include "../include/io.h"
-
-#define VGA_WIDTH   80
-#define VGA_HEIGHT  25
+#include "../include/console.h"
 
 static volatile uint16_t* const VGA_MEMORY =
     (volatile uint16_t*)0xB8000;
@@ -69,7 +67,7 @@ void vga_putchar(char c)
     vga_update_cursor();
 }
 
-static void vga_scroll(void)
+void vga_scroll(void)
 {
     for(int y=1;y<VGA_HEIGHT;y++)
     {
@@ -87,6 +85,7 @@ static void vga_scroll(void)
     }
 
     cursor_y = VGA_HEIGHT-1;
+    console_scroll_notify();
 }
 
 void vga_puts(const char* str)
@@ -135,4 +134,59 @@ static void vga_update_cursor(void)
 
     outb(0x3D4, 0x0E);
     outb(0x3D5, (uint8_t)((pos >> 8) & 0xFF));
+}
+
+void vga_move_cursor_left(void)
+{
+    if (cursor_x == 0)
+        return;
+
+    cursor_x--;
+
+    vga_update_cursor();
+}
+
+void vga_move_cursor_right(void)
+{
+    if (cursor_x >= VGA_WIDTH - 1)
+        return;
+
+    cursor_x++;
+
+    vga_update_cursor();
+}
+
+void vga_set_cursor(uint16_t x, uint16_t y)
+{
+    y += x / VGA_WIDTH;
+    x %= VGA_WIDTH;
+
+    while (y >= VGA_HEIGHT)
+    {
+        vga_scroll();
+        y--;
+    }
+
+    cursor_x = x;
+    cursor_y = y;
+
+    vga_update_cursor();
+}
+
+uint16_t vga_get_cursor_x(void)
+{
+    return cursor_x;
+}
+
+uint16_t vga_get_cursor_y(void)
+{
+    return cursor_y;
+}
+
+void vga_putentry_at(char c, uint16_t x, uint16_t y)
+{
+    if (x >= VGA_WIDTH || y >= VGA_HEIGHT)
+        return;
+
+    VGA_MEMORY[offset(x, y)] = vga_entry(c);
 }

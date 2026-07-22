@@ -39,6 +39,7 @@ void kernel_main(void)
     asm volatile("sti");
 
     shell_init();
+    keyboard_set_input_start();
 
     uint32_t last = 0;
 

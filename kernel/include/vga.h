@@ -3,6 +3,9 @@
 
 #include <stdint.h>
 
+#define VGA_WIDTH   80
+#define VGA_HEIGHT  25
+
 enum vga_color
 {
     VGA_COLOR_BLACK         = 0x0,
@@ -32,8 +35,14 @@ void vga_set_color(
 );
 void vga_enable_cursor(void);
 void vga_backspace(void);
+void vga_move_cursor_left(void);
+void vga_move_cursor_right(void);
+void vga_set_cursor(uint16_t x, uint16_t y);
+uint16_t vga_get_cursor_x(void);
+uint16_t vga_get_cursor_y(void);
+void vga_putentry_at(char c, uint16_t x, uint16_t y);
 
-static void vga_scroll(void);
+void vga_scroll(void);
 static void vga_update_cursor(void);
 
 #endif

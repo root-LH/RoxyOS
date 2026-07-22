@@ -3,6 +3,7 @@
 #include "include/string.h"
 #include "include/vga.h"
 #include "include/vfs.h"
+#include "include/keyboard.h"
 
 static void cmd_help(int argc, char **argv);
 static void cmd_clear(int argc, char **argv);
@@ -184,7 +185,7 @@ static void cmd_write(int argc, char **argv)
         return;
     }
 
-    char buffer[256];
+    char buffer[INPUT_BUFFER_SIZE];
     buffer[0] = '\0';
 
     for (int i = 2; i < argc; i++)
@@ -224,7 +225,7 @@ static void cmd_rm(int argc, char **argv){
         printk("Failed to remove file\n");
         return;
     }
-    
+
     printk("Removed: ");
     printk(argv[1]);
     printk("\n");
@@ -232,7 +233,7 @@ static void cmd_rm(int argc, char **argv){
 
 void shell_execute(const char *cmd)
 {
-    char buffer[128];
+    char buffer[INPUT_BUFFER_SIZE];
     char *argv[16];
     int argc = 0;
 

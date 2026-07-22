@@ -2,8 +2,13 @@
 #define MEMORY_H
 
 #include <stddef.h>
+#include "types.h"
 
-void *memcpy(void *dest, const void *src, size_t n);
-void *memset(void *dest, int c, size_t n);
+#define KERNEL_HEAP_START 0x100000
+#define KERNEL_HEAP_SIZE  (1024 * 1024)
+
+void memory_init(void);
+void *kmalloc(size_t size);
+void kfree(void *ptr);
 
 #endif

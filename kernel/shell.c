@@ -3,6 +3,25 @@
 #include "include/string.h"
 #include "include/vga.h"
 
+static void cmd_help(const char *args);
+static void cmd_clear(const char *args);
+static void cmd_echo(const char *args);
+
+typedef struct
+{
+    const char *name;
+    void (*handler)(const char *args);
+} command_t;
+
+static command_t commands[] =
+{
+    { "help",  cmd_help  },
+    { "clear", cmd_clear },
+    { "echo",  cmd_echo  },
+};
+
+static const int command_count = sizeof(commands) / sizeof(commands[0]);
+
 void shell_init(void)
 {
     shell_print_prompt();
@@ -61,22 +80,13 @@ void shell_execute(const char *cmd)
         args++;
     }
 
-    if (strcmp(command, "help") == 0)
+    for (int i = 0; i < command_count; i++)
     {
-        cmd_help(args);
-        return;
-    }
-
-    if (strcmp(command, "clear") == 0)
-    {
-        cmd_clear(args);
-        return;
-    }
-
-    if (strcmp(command, "echo") == 0)
-    {
-        cmd_echo(args);
-        return;
+        if (strcmp(command, commands[i].name) == 0)
+        {
+            commands[i].handler(args);
+            return;
+        }
     }
 
     printk("Unknown command\n");

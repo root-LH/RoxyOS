@@ -4,6 +4,7 @@
 #include "types.h"
 
 #define MAX_FILE_NAME 32
+#define MAX_FILES 64
 
 typedef struct file
 {
@@ -22,5 +23,6 @@ file_t *vfs_find(const char *name);
 int vfs_write(file_t *file, const void *data, size_t size);
 const void *vfs_read(const file_t *file);
 int vfs_delete(file_t *file);
+const file_t *vfs_get_file(size_t index);
 
 #endif

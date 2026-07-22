@@ -98,3 +98,14 @@ int vfs_delete(file_t *file)
 
     return 0;
 }
+
+const file_t *vfs_get_file(size_t index)
+{
+    if (index >= MAX_FILES)
+        return NULL;
+
+    if (!files[index].used)
+        return NULL;
+
+    return &files[index];
+}

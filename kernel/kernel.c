@@ -7,6 +7,7 @@
 #include "include/timer.h"
 #include "include/keyboard.h"
 #include "include/shell.h"
+#include "include/memory.h"
 
 static void trigger_divide_error(void)
 {

@@ -5,7 +5,6 @@
 #include "include/vfs.h"
 #include "include/keyboard.h"
 #include "include/ata.h"
-#include "include/simplefs.h"
 
 static void cmd_help(int argc, char **argv);
 static void cmd_clear(int argc, char **argv);
@@ -114,7 +113,7 @@ static void cmd_touch(int argc, char **argv)
         return;
     }
 
-    if (simplefs_create(argv[1]) == 0)
+    if (vfs_create(argv[1]) == 0)
         printk("File created.\n");
     else
         printk("Create failed.\n");
@@ -125,7 +124,7 @@ static void cmd_ls(int argc, char **argv)
     (void)argc;
     (void)argv;
 
-    simplefs_list();
+    vfs_list();
 }
 
 static void cmd_cat(int argc, char **argv)
@@ -138,7 +137,7 @@ static void cmd_cat(int argc, char **argv)
 
     char buffer[513];
 
-    int size = simplefs_read(argv[1], buffer, sizeof(buffer) - 1);
+    int size = vfs_read(argv[1], buffer, sizeof(buffer) - 1);
 
     if (size < 0)
     {
@@ -171,7 +170,7 @@ static void cmd_write(int argc, char **argv)
             strcat(buffer, " ");
     }
 
-    if (simplefs_write(argv[1], buffer, strlen(buffer)) == 0)
+    if (vfs_write(argv[1], buffer, strlen(buffer)) == 0)
         printk("Write complete.\n");
     else
         printk("Write failed.\n");
@@ -185,7 +184,7 @@ static void cmd_rm(int argc, char **argv)
         return;
     }
 
-    if (simplefs_delete(argv[1]) == 0)
+    if (vfs_delete(argv[1]) == 0)
         printk("File removed.\n");
     else
         printk("Remove failed.\n");

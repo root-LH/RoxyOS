@@ -2,27 +2,14 @@
 #define VFS_H
 
 #include "types.h"
-
-#define MAX_FILE_NAME 32
-#define MAX_FILES 64
-
-typedef struct file
-{
-    char name[MAX_FILE_NAME];
-
-    void *data;
-    size_t size;
-
-    uint8_t used;
-} file_t;
+#include "simplefs.h"
 
 void vfs_init(void);
 
-file_t *vfs_create(const char *name);
-file_t *vfs_find(const char *name);
-int vfs_write(file_t *file, const void *data, size_t size);
-const void *vfs_read(const file_t *file);
-int vfs_delete(file_t *file);
-const file_t *vfs_get_file(size_t index);
+int vfs_create(const char *name);
+int vfs_write(const char *name, const void *data, size_t size);
+int vfs_read(const char *name, void *buffer, uint32_t buffer_size);
+int vfs_delete(const char *name);
+void vfs_list(void);
 
 #endif

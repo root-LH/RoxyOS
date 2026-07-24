@@ -10,6 +10,7 @@
 #include "include/memory.h"
 #include "include/string.h"
 #include "include/vfs.h"
+#include "include/ata.h"
 
 static void trigger_divide_error(void)
 {
@@ -39,6 +40,7 @@ void kernel_main(void)
     asm volatile("sti");
 
     shell_init();
+    ata_init();
     keyboard_set_input_start();
 
     uint32_t last = 0;

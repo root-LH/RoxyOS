@@ -4,6 +4,8 @@
 #include "include/vga.h"
 #include "include/vfs.h"
 #include "include/keyboard.h"
+#include "include/ata.h"
+#include "include/simplefs.h"
 
 static void cmd_help(int argc, char **argv);
 static void cmd_clear(int argc, char **argv);
@@ -14,6 +16,9 @@ static void cmd_ls(int argc, char **argv);
 static void cmd_cat(int argc, char **argv);
 static void cmd_write(int argc, char **argv);
 static void cmd_rm(int argc, char **argv);
+static void cmd_diskread(int argc, char **argv);
+static void cmd_diskwrite(int argc, char **argv);
+static void cmd_mkfs(int argc, char **argv);
 
 typedef struct
 {
@@ -31,7 +36,10 @@ static command_t commands[] =
     { "ls", cmd_ls },
     { "cat", cmd_cat },
     { "write", cmd_write },
-    { "rm", cmd_rm }
+    { "rm", cmd_rm },
+    { "diskread", cmd_diskread },
+    { "diskwrite", cmd_diskwrite },
+    { "mkfs", cmd_mkfs }
 };
 
 static const int command_count = sizeof(commands) / sizeof(commands[0]);
@@ -100,21 +108,16 @@ static void cmd_version(int argc, char **argv)
 
 static void cmd_touch(int argc, char **argv)
 {
-    if (argc != 2)
+    if (argc < 2)
     {
-        printk("Usage: touch <filename>\n");
+        printk("Usage: touch <file>\n");
         return;
     }
 
-    if (vfs_create(argv[1]) == NULL)
-    {
-        printk("Failed to create file\n");
-        return;
-    }
-
-    printk("Created: ");
-    printk(argv[1]);
-    printk("\n");
+    if (simplefs_create(argv[1]) == 0)
+        printk("File created.\n");
+    else
+        printk("Create failed.\n");
 }
 
 static void cmd_ls(int argc, char **argv)
@@ -122,50 +125,30 @@ static void cmd_ls(int argc, char **argv)
     (void)argc;
     (void)argv;
 
-    int found = 0;
-
-    for (size_t i = 0; i < MAX_FILES; i++)
-    {
-        const file_t *file = vfs_get_file(i);
-
-        if (file == NULL)
-            continue;
-
-        printk(file->name);
-        printk("\n");
-
-        found = 1;
-    }
-
-    if (!found)
-        printk("No files\n");
+    simplefs_list();
 }
 
 static void cmd_cat(int argc, char **argv)
 {
-    if (argc != 2)
+    if (argc < 2)
     {
-        printk("Usage: cat <filename>\n");
+        printk("Usage: cat <file>\n");
         return;
     }
 
-    file_t *file = vfs_find(argv[1]);
+    char buffer[513];
 
-    if (file == NULL)
+    int size = simplefs_read(argv[1], buffer, sizeof(buffer) - 1);
+
+    if (size < 0)
     {
-        printk("File not found\n");
+        printk("Read failed.\n");
         return;
     }
 
-    const char *data = (const char *)vfs_read(file);
+    buffer[size] = '\0';
 
-    if (data == NULL)
-    {
-        printk("(empty)\n");
-        return;
-    }
-
-    printk(data);
+    printk(buffer);
     printk("\n");
 }
 
@@ -173,19 +156,11 @@ static void cmd_write(int argc, char **argv)
 {
     if (argc < 3)
     {
-        printk("Usage: write <filename> <text>\n");
+        printk("Usage: write <file> <text>\n");
         return;
     }
 
-    file_t *file = vfs_find(argv[1]);
-
-    if (file == NULL)
-    {
-        printk("File not found\n");
-        return;
-    }
-
-    char buffer[INPUT_BUFFER_SIZE];
+    char buffer[512];
     buffer[0] = '\0';
 
     for (int i = 2; i < argc; i++)
@@ -196,39 +171,81 @@ static void cmd_write(int argc, char **argv)
             strcat(buffer, " ");
     }
 
-    if (vfs_write(file, buffer, strlen(buffer) + 1) != 0)
-    {
-        printk("Write failed\n");
-        return;
-    }
-
-    printk("Write complete\n");
+    if (simplefs_write(argv[1], buffer, strlen(buffer)) == 0)
+        printk("Write complete.\n");
+    else
+        printk("Write failed.\n");
 }
 
-static void cmd_rm(int argc, char **argv){
-    if (argc != 2)
+static void cmd_rm(int argc, char **argv)
+{
+    if (argc < 2)
     {
-        printk("Usage: rm <filename>\n");
+        printk("Usage: rm <file>\n");
         return;
     }
 
-    file_t *file = vfs_find(argv[1]);
+    if (simplefs_delete(argv[1]) == 0)
+        printk("File removed.\n");
+    else
+        printk("Remove failed.\n");
+}
 
-    if (file == NULL)
+static void cmd_diskread(int argc, char **argv)
+{
+    (void)argc;
+    (void)argv;
+
+    uint8_t sector[512];
+
+    if (ata_read_sector(100, sector) == 0)
     {
-        printk("File not found\n");
-        return;
-    }
+        for (int i = 0; i < 32; i++)
+        {
+            printk_hex(sector[i]);
+            printk(" ");
+        }
 
-    if (vfs_delete(file) != 0)
+        printk("\n");
+    }
+    else
     {
-        printk("Failed to remove file\n");
-        return;
+        printk("ATA Read Failed\n");
     }
+}
 
-    printk("Removed: ");
-    printk(argv[1]);
-    printk("\n");
+static void cmd_diskwrite(int argc, char **argv)
+{
+    (void)argc;
+    (void)argv;
+
+    uint8_t sector[512];
+
+    memset(sector, 0, sizeof(sector));
+
+    const char *msg = "Hello ATA";
+
+    for (int i = 0; msg[i] != '\0'; i++)
+        sector[i] = msg[i];
+
+    if (ata_write_sector(100, sector) == 0)
+    {
+        printk("Write Success\n");
+    }
+    else
+    {
+        printk("Write Failed\n");
+    }
+}
+
+static void cmd_mkfs(int argc, char **argv)
+{
+    (void)argc;
+    (void)argv;
+
+    simplefs_format();
+
+    printk("SimpleFS formatted.\n");
 }
 
 void shell_execute(const char *cmd)

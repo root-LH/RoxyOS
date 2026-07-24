@@ -70,6 +70,12 @@ $(BUILD)/irq.o: kernel/arch/x86/irq.c | $(BUILD)
 $(BUILD)/pit.o: kernel/arch/x86/pit.c | $(BUILD)
 	$(CC) $(CFLAGS) -c $< -o $@
 
+$(BUILD)/ata.o: kernel/arch/x86/ata.c | $(BUILD)
+	$(CC) $(CFLAGS) -c $< -o $@
+
+$(BUILD)/simplefs.o: kernel/fs/simplefs.c | $(BUILD)
+	$(CC) $(CFLAGS) -c $< -o $@
+
 $(BUILD)/string.o: kernel/libk/string.c | $(BUILD)
 	$(CC) $(CFLAGS) -c $< -o $@
 
@@ -119,6 +125,8 @@ $(BUILD)/kernel.elf: \
 	$(BUILD)/keyboard.o \
 	$(BUILD)/shell.o \
 	$(BUILD)/vfs.o \
+	$(BUILD)/ata.o \
+	$(BUILD)/simplefs.o \
 	$(BUILD)/kernel.o | $(BUILD)
 	$(LD) $(LDFLAGS) -o $@ $^
 
@@ -131,7 +139,9 @@ $(BUILD)/kernel.bin: $(BUILD)/kernel.elf | $(BUILD)
 	$(OBJCOPY) -O binary $< $@
 
 $(BUILD)/os.img: $(BUILD)/stage1.bin $(BUILD)/stage2.bin $(BUILD)/kernel.bin
-	dd if=/dev/zero of=$@ bs=512 count=20
+	@if [ ! -f $@ ]; then \
+		dd if=/dev/zero of=$@ bs=512 count=4096; \
+	fi
 	dd if=$(BUILD)/stage1.bin of=$@ conv=notrunc
 	dd if=$(BUILD)/stage2.bin of=$@ bs=512 seek=1 conv=notrunc
 	dd if=$(BUILD)/kernel.bin of=$@ bs=512 seek=2 conv=notrunc

@@ -5,5 +5,6 @@
 
 void printk(const char *str);
 void printk_hex(uint32_t value);
+void printk_dec(uint32_t value);
 
 #endif

@@ -17,3 +17,26 @@ void printk_hex(uint32_t value)
         vga_putchar(c);
     }
 }
+
+void printk_dec(uint32_t value)
+{
+    char buf[11];
+    int i = 0;
+
+    if (value == 0)
+    {
+        printk("0");
+        return;
+    }
+
+    while (value > 0)
+    {
+        buf[i++] = '0' + (value % 10);
+        value /= 10;
+    }
+
+    while (i--)
+    {
+        vga_putchar(buf[i]);
+    }
+}

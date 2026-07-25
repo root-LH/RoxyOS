@@ -35,10 +35,9 @@ static int simplefs_find_free_entry(
 
 static uint32_t simplefs_alloc_sector(uint32_t count)
 {
-    (void)count;
+    uint8_t used[1024] = {0};
 
     uint8_t sector[512];
-    uint32_t max = SIMPLEFS_DATA_SECTOR;
 
     for (uint32_t s = 0; s < 16; s++)
     {
@@ -56,14 +55,38 @@ static uint32_t simplefs_alloc_sector(uint32_t count)
                 continue;
 
             uint32_t used_sectors = (table[i].size + 511) / 512;
-            uint32_t end = table[i].start_sector + used_sectors;
+            for (uint32_t j = 0; j < used_sectors; j++)
+            {
+                if (table[i].start_sector < SIMPLEFS_DATA_SECTOR)
+                    continue;
+                uint32_t index = table[i].start_sector - SIMPLEFS_DATA_SECTOR + j;
 
-            if (end > max)
-                max = end;
+                if (index < sizeof(used))
+                    used[index] = 1;
+            }
         }
     }
 
-    return max;
+    uint32_t free_count = 0;
+
+    for (uint32_t i = 0; i < sizeof(used); i++)
+    {
+        if (!used[i])
+        {
+            free_count++;
+
+            if (free_count == count)
+            {
+                return SIMPLEFS_DATA_SECTOR + i - count + 1;
+            }
+        }
+        else
+        {
+            free_count = 0;
+        }
+    }
+
+    return 0;
 }
 
 void simplefs_format(void)

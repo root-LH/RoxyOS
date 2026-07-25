@@ -33,8 +33,10 @@ static int simplefs_find_free_entry(
     return -1;
 }
 
-static uint32_t simplefs_alloc_sector(void)
+static uint32_t simplefs_alloc_sector(uint32_t count)
 {
+    (void)count;
+
     uint8_t sector[512];
     uint32_t max = SIMPLEFS_DATA_SECTOR;
 
@@ -53,37 +55,8 @@ static uint32_t simplefs_alloc_sector(void)
             if (table[i].start_sector == 0)
                 continue;
 
-            uint32_t end = table[i].start_sector + 1;
-
-            if (end > max)
-                max = end;
-        }
-    }
-
-    return max;
-}
-
-static uint32_t simplefs_next_free_sector(void)
-{
-    uint32_t max = SIMPLEFS_DATA_SECTOR;
-
-    uint8_t sector[512];
-
-    for (uint32_t s = 0; s < 16; s++)
-    {
-        if (ata_read_sector(SIMPLEFS_TABLE_SECTOR + s, sector) != 0)
-            return 0;
-
-        simplefs_entry_t *table =
-            (simplefs_entry_t *)sector;
-
-        for (uint32_t i = 0; i < 8; i++)
-        {
-            if (!table[i].used)
-                continue;
-
-            uint32_t end =
-                table[i].start_sector + 1;
+            uint32_t used_sectors = (table[i].size + 511) / 512;
+            uint32_t end = table[i].start_sector + used_sectors;
 
             if (end > max)
                 max = end;
@@ -140,7 +113,7 @@ int simplefs_create(const char *name)
 
                 table[i].used = 1;
                 table[i].size = 0;
-                table[i].start_sector = simplefs_next_free_sector();
+                table[i].start_sector = 0;
 
                 if (ata_write_sector(SIMPLEFS_TABLE_SECTOR + s, sector) != 0)
                     return -1;
@@ -236,20 +209,40 @@ int simplefs_write(const char *name, const void *data, uint32_t size)
     if (handle == NULL)
         return -1;
 
-    if (size > 512)
-        return -1;
+    uint32_t sector_count = (size + 511) / 512;
+    
+    if (handle->entry.start_sector != 0)
+    {
+        uint32_t current_sector_count = (handle->entry.size + 511) / 512;
+
+        if (sector_count > current_sector_count)
+            return -1;
+    }
 
     if (handle->entry.start_sector == 0)
-        handle->entry.start_sector = simplefs_alloc_sector();
+        handle->entry.start_sector = simplefs_alloc_sector(sector_count);
 
-    uint8_t buffer[512];
+    for (uint32_t i = 0; i < sector_count; i++)
+    {
+        uint8_t sector[512];
 
-    memset(buffer, 0, sizeof(buffer));
-    memcpy(buffer, data, size);
+        memset(sector, 0, sizeof(sector));
 
-    if (ata_write_sector(handle->entry.start_sector, buffer) != 0)
-        return -1;
+        uint32_t offset = i * 512;
 
+        uint32_t remain = size - offset;
+
+        uint32_t copy_size = (remain > 512) ? 512 : remain;
+
+        memcpy(
+            sector,
+            (const uint8_t *)data + offset,
+            copy_size);
+
+        if (ata_write_sector(handle->entry.start_sector + i, sector) != 0)
+            return -1;
+    }
+    
     handle->entry.size = size;
 
     uint8_t sector[512];
@@ -280,12 +273,24 @@ int simplefs_read(const char *name, void *buffer, uint32_t buffer_size)
     if (buffer_size < handle->entry.size)
         return -1;
 
-    uint8_t sector[512];
+    uint32_t sector_count = (handle->entry.size + 511) / 512;
 
-    if (ata_read_sector(handle->entry.start_sector, sector) != 0)
-        return -1;
+    for (uint32_t i = 0; i < sector_count; i++)
+    {
+        uint8_t sector[512];
 
-    memcpy(buffer, sector, handle->entry.size);
+        if (ata_read_sector(handle->entry.start_sector + i, sector) != 0)
+            return -1;
+
+        uint32_t offset = i * 512;
+        uint32_t remain = handle->entry.size - offset;
+        uint32_t copy_size = (remain > 512) ? 512 : remain;
+
+        memcpy(
+            (uint8_t *)buffer + offset,
+            sector,
+            copy_size);
+    }
 
     return handle->entry.size;
 }

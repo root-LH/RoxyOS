@@ -135,7 +135,7 @@ static void cmd_cat(int argc, char **argv)
         return;
     }
 
-    char buffer[513];
+    char buffer[4097];
 
     int size = vfs_read(argv[1], buffer, sizeof(buffer) - 1);
 

@@ -30,3 +30,13 @@ void vfs_list(void)
 {
     simplefs_list();
 }
+
+int vfs_size(const char *name)
+{
+    simplefs_handle_t *handle = simplefs_find(name);
+
+    if (handle == 0)
+        return -1;
+
+    return handle->entry.size;
+}

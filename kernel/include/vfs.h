@@ -11,5 +11,6 @@ int vfs_write(const char *name, const void *data, size_t size);
 int vfs_read(const char *name, void *buffer, uint32_t buffer_size);
 int vfs_delete(const char *name);
 void vfs_list(void);
+int vfs_size(const char *name);
 
 #endif

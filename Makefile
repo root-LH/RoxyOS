@@ -100,6 +100,9 @@ $(BUILD)/shell.o: kernel/shell.c | $(BUILD)
 $(BUILD)/vfs.o: kernel/vfs.c | $(BUILD)
 	$(CC) $(CFLAGS) -c $< -o $@
 
+$(BUILD)/elf.o: kernel/elf_loader.c | $(BUILD)
+	$(CC) $(CFLAGS) -c $< -o $@
+
 $(BUILD)/kernel.o: kernel/kernel.c | $(BUILD)
 	$(CC) $(CFLAGS) -c $< -o $@
 
@@ -127,6 +130,7 @@ $(BUILD)/kernel.elf: \
 	$(BUILD)/vfs.o \
 	$(BUILD)/ata.o \
 	$(BUILD)/simplefs.o \
+	$(BUILD)/elf.o \
 	$(BUILD)/kernel.o | $(BUILD)
 	$(LD) $(LDFLAGS) -o $@ $^
 

@@ -5,6 +5,7 @@
 #include "include/vfs.h"
 #include "include/keyboard.h"
 #include "include/ata.h"
+#include "include/elf_loader.h"
 
 static void cmd_help(int argc, char **argv);
 static void cmd_clear(int argc, char **argv);
@@ -18,6 +19,7 @@ static void cmd_rm(int argc, char **argv);
 static void cmd_diskread(int argc, char **argv);
 static void cmd_diskwrite(int argc, char **argv);
 static void cmd_mkfs(int argc, char **argv);
+static void cmd_run(int argc, char **argv);
 
 typedef struct
 {
@@ -38,7 +40,8 @@ static command_t commands[] =
     { "rm", cmd_rm },
     { "diskread", cmd_diskread },
     { "diskwrite", cmd_diskwrite },
-    { "mkfs", cmd_mkfs }
+    { "mkfs", cmd_mkfs },
+    { "run", cmd_run }
 };
 
 static const int command_count = sizeof(commands) / sizeof(commands[0]);
@@ -68,6 +71,7 @@ static void cmd_help(int argc, char **argv)
     printk("  cat   - Display file contents\n");
     printk("  write - Write text to a file\n");
     printk("  rm    - Remove a file\n");
+    printk("  run   - Execute program\n");
 }
 
 static void cmd_clear(int argc, char **argv)
@@ -245,6 +249,19 @@ static void cmd_mkfs(int argc, char **argv)
     simplefs_format();
 
     printk("SimpleFS formatted.\n");
+}
+
+static void cmd_run(int argc, char **argv)
+{
+    if (argc < 2)
+    {
+        printk("Usage: run <file>\n");
+    }
+    else
+    {
+        if (elf_exec(argv[1]) != 0)
+            printk("Failed to execute");
+    }
 }
 
 void shell_execute(const char *cmd)

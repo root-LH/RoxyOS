@@ -33,6 +33,10 @@ extern void isr28();
 extern void isr29();
 extern void isr30();
 extern void isr31();
+
+/* System Call */
+extern void isr128();
+
 extern void idt_load(struct idt_ptr* ptr);
 
 static struct idt_entry idt[256];
@@ -90,6 +94,8 @@ void idt_init(void)
     idt_set_gate(29, (uint32_t)isr29, 0x08, 0x8E);
     idt_set_gate(30, (uint32_t)isr30, 0x08, 0x8E);
     idt_set_gate(31, (uint32_t)isr31, 0x08, 0x8E);
+
+    idt_set_gate(128, (uint32_t)isr128, 0x08, 0xEE);
 
     idt_load(&idtr);
 

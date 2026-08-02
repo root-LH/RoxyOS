@@ -40,3 +40,8 @@ int vfs_size(const char *name)
 
     return handle->entry.size;
 }
+
+int vfs_exists(const char *name)
+{
+    return simplefs_find(name) != 0;
+}

@@ -6,5 +6,6 @@
 void keyboard_init(void);
 void keyboard_handler(void);
 void keyboard_set_input_start(void);
+char keyboard_getchar(void);
 
 #endif

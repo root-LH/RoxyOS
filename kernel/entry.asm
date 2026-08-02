@@ -1,6 +1,8 @@
 [BITS 32]
 
 global _start
+global stack_top
+
 extern kernel_main
 
 section .text

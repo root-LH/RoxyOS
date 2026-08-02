@@ -85,6 +85,42 @@ static int caps_lock = 0;
 static int extended_scancode = 0;
 static uint32_t previous_length = 0;
 
+#define KEYBOARD_QUEUE_SIZE 128
+static char keyboard_queue[KEYBOARD_QUEUE_SIZE];
+
+static uint32_t keyboard_head = 0;
+static uint32_t keyboard_tail = 0;
+
+static void keyboard_queue_push(char c)
+{
+    uint32_t next =
+        (keyboard_tail + 1) % KEYBOARD_QUEUE_SIZE;
+
+    if (next == keyboard_head)
+        return;
+
+    keyboard_queue[keyboard_tail] = c;
+    keyboard_tail = next;
+}
+
+char keyboard_getchar(void)
+{
+    while (keyboard_head == keyboard_tail)
+    {
+        asm volatile(
+            "sti\n\t"
+            "hlt"
+        );
+    }
+
+    char c = keyboard_queue[keyboard_head];
+
+    keyboard_head =
+        (keyboard_head + 1) % KEYBOARD_QUEUE_SIZE;
+
+    return c;
+}
+
 static void keyboard_get_screen_pos(
     uint32_t index,
     uint16_t *x,
@@ -257,6 +293,8 @@ void keyboard_handler(void)
 
         return;
     }
+
+    keyboard_queue_push(c);
 
     if (input_length >= INPUT_BUFFER_SIZE - 1)
         return;

@@ -19,6 +19,25 @@ gdt_data:
     db 11001111b
     db 0x00
 
+gdt_user_code:
+    dw 0xFFFF
+    dw 0x0000
+    db 0x00
+    db 11111010b       ; Present=1, DPL=3, Code
+    db 11001111b
+    db 0x00
+
+gdt_user_data:
+    dw 0xFFFF
+    dw 0x0000
+    db 0x00
+    db 11110010b       ; Present=1, DPL=3, Data
+    db 11001111b
+    db 0x00
+
+gdt_tss:
+    dq 0
+
 gdt_end:
 
 gdt_descriptor:
@@ -27,3 +46,5 @@ gdt_descriptor:
 
 CODE_SEG equ gdt_code - gdt_start
 DATA_SEG equ gdt_data - gdt_start
+USER_CODE_SEG equ gdt_user_code - gdt_start
+USER_DATA_SEG equ gdt_user_data - gdt_start

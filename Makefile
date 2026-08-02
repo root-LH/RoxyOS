@@ -31,7 +31,7 @@ $(BUILD)/stage1.bin: boot/stage1.asm $(BUILD)/kernel.bin | $(BUILD)
 	echo "KERNEL_SECTORS equ $$SECTORS" > boot/stage1.inc
 	$(ASM) -f bin $< -o $@
 
-$(BUILD)/stage2.bin: boot/stage2.asm | $(BUILD)
+$(BUILD)/stage2.bin: boot/stage2.asm boot/gdt.inc | $(BUILD)
 	$(ASM) -f bin $< -o $@
 
 $(BUILD)/entry.o: kernel/entry.asm | $(BUILD)
@@ -58,6 +58,15 @@ $(BUILD)/irqasm.o: kernel/arch/x86/irq.asm | $(BUILD)
 $(BUILD)/isr.o: kernel/arch/x86/isr.asm | $(BUILD)
 	$(ASM) -f elf32 $< -o $@
 
+$(BUILD)/isr128.o: kernel/arch/x86/isr128.asm | $(BUILD)
+	$(ASM) -f elf32 $< -o $@
+
+$(BUILD)/tssasm.o: kernel/arch/x86/tss.asm | $(BUILD)
+	$(ASM) -f elf32 $< -o $@
+
+$(BUILD)/usermode.o: kernel/arch/x86/usermode.asm | $(BUILD)
+	$(ASM) -f elf32 $< -o $@
+
 $(BUILD)/isrc.o: kernel/arch/x86/isr.c | $(BUILD)
 	$(CC) $(CFLAGS) -c $< -o $@
 
@@ -73,8 +82,17 @@ $(BUILD)/pit.o: kernel/arch/x86/pit.c | $(BUILD)
 $(BUILD)/ata.o: kernel/arch/x86/ata.c | $(BUILD)
 	$(CC) $(CFLAGS) -c $< -o $@
 
+$(BUILD)/tss.o: kernel/arch/x86/tss.c | $(BUILD)
+	$(CC) $(CFLAGS) -c $< -o $@
+
+$(BUILD)/gdt.o: kernel/arch/x86/gdt.c | $(BUILD)
+	$(CC) $(CFLAGS) -c $< -o $@
+
 $(BUILD)/simplefs.o: kernel/fs/simplefs.c | $(BUILD)
 	$(CC) $(CFLAGS) -c $< -o $@
+
+$(BUILD)/syscall_user.o: kernel/lib/user/syscall.asm
+	$(ASM) -f elf32 $< -o $@
 
 $(BUILD)/string.o: kernel/libk/string.c | $(BUILD)
 	$(CC) $(CFLAGS) -c $< -o $@
@@ -103,6 +121,12 @@ $(BUILD)/vfs.o: kernel/vfs.c | $(BUILD)
 $(BUILD)/elf.o: kernel/elf_loader.c | $(BUILD)
 	$(CC) $(CFLAGS) -c $< -o $@
 
+$(BUILD)/syscall.o: kernel/syscall.c | $(BUILD)
+	$(CC) $(CFLAGS) -c $< -o $@
+
+$(BUILD)/fd.o: kernel/fd.c | $(BUILD)
+	$(CC) $(CFLAGS) -c $< -o $@
+
 $(BUILD)/kernel.o: kernel/kernel.c | $(BUILD)
 	$(CC) $(CFLAGS) -c $< -o $@
 
@@ -113,6 +137,7 @@ $(BUILD)/kernel.elf: \
 	$(BUILD)/idt.o \
 	$(BUILD)/idtasm.o \
 	$(BUILD)/isr.o \
+	$(BUILD)/isr128.o \
 	$(BUILD)/isrc.o \
 	$(BUILD)/string.o \
 	$(BUILD)/memory.o \
@@ -131,6 +156,13 @@ $(BUILD)/kernel.elf: \
 	$(BUILD)/ata.o \
 	$(BUILD)/simplefs.o \
 	$(BUILD)/elf.o \
+	$(BUILD)/syscall.o \
+	$(BUILD)/tss.o \
+	$(BUILD)/gdt.o \
+	$(BUILD)/tssasm.o \
+	$(BUILD)/usermode.o \
+	$(BUILD)/syscall_user.o \
+	$(BUILD)/fd.o \
 	$(BUILD)/kernel.o | $(BUILD)
 	$(LD) $(LDFLAGS) -o $@ $^
 

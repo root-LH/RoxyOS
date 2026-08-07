@@ -3,6 +3,7 @@
 #include "../../include/io.h"
 #include "../../include/pit.h"
 #include "../../include/keyboard.h"
+#include "../../include/scheduler.h"
 
 #define PIC1_COMMAND 0x20
 #define PIC2_COMMAND 0xA0
@@ -13,6 +14,10 @@ void irq_handler(registers_t *r)
     if (r->int_no == 32)
     {
         timer_ticks++;
+
+        scheduler_wakeup();
+
+        scheduler_tick();
     }
     else if (r->int_no == 33)
     {

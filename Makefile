@@ -67,6 +67,9 @@ $(BUILD)/tssasm.o: kernel/arch/x86/tss.asm | $(BUILD)
 $(BUILD)/usermode.o: kernel/arch/x86/usermode.asm | $(BUILD)
 	$(ASM) -f elf32 $< -o $@
 
+$(BUILD)/process_switch.o: kernel/arch/x86/process_switch.asm | $(BUILD)
+	$(ASM) -f elf32 $< -o $@
+
 $(BUILD)/isrc.o: kernel/arch/x86/isr.c | $(BUILD)
 	$(CC) $(CFLAGS) -c $< -o $@
 
@@ -127,6 +130,15 @@ $(BUILD)/syscall.o: kernel/syscall.c | $(BUILD)
 $(BUILD)/fd.o: kernel/fd.c | $(BUILD)
 	$(CC) $(CFLAGS) -c $< -o $@
 
+$(BUILD)/process.o: kernel/process.c | $(BUILD)
+	$(CC) $(CFLAGS) -c $< -o $@
+
+$(BUILD)/scheduler.o: kernel/scheduler.c | $(BUILD)
+	$(CC) $(CFLAGS) -c $< -o $@
+
+$(BUILD)/idle.o: kernel/idle.c | $(BUILD)
+	$(CC) $(CFLAGS) -c $< -o $@
+
 $(BUILD)/kernel.o: kernel/kernel.c | $(BUILD)
 	$(CC) $(CFLAGS) -c $< -o $@
 
@@ -163,6 +175,10 @@ $(BUILD)/kernel.elf: \
 	$(BUILD)/usermode.o \
 	$(BUILD)/syscall_user.o \
 	$(BUILD)/fd.o \
+	$(BUILD)/process.o \
+	$(BUILD)/process_switch.o \
+	$(BUILD)/scheduler.o \
+	$(BUILD)/idle.o \
 	$(BUILD)/kernel.o | $(BUILD)
 	$(LD) $(LDFLAGS) -o $@ $^
 

@@ -16,10 +16,31 @@
 #include "include/usermode.h"
 #include "include/syscall.h"
 #include "include/fd.h"
+#include "include/process.h"
+#include "include/scheduler.h"
+#include "include/idle.h"
 
 __attribute__((aligned(16)))
 static uint8_t user_stack[4096];
 extern uint8_t stack_top;
+
+void task1(void)
+{
+    while (1)
+    {
+        printk("A");
+        process_sleep(500);
+    }
+}
+
+void task2(void)
+{
+    while (1)
+    {
+        printk("B");
+        process_sleep(100);
+    }
+}
 
 void user_mode_entry(void)
 {
@@ -57,15 +78,35 @@ void kernel_main(void)
     gdt_install_tss();
     tss_flush();
 
+    scheduler_init();
+    /*
+    process_t *idle = process_create_kernel(idle_task);
+
+    process_t *p1 = process_create_kernel(task1);
+    process_t *p2 = process_create_kernel(task2);
+
+    scheduler_set_idle(idle);
+
+    scheduler_add(p1);
+    scheduler_add(p2);
+
     asm volatile("sti");
 
+    process_switch(p1);
+    */
+
+    /*
     uint32_t user_stack_top = (uint32_t)(user_stack + sizeof(user_stack));
 
     switch_to_user_mode(user_stack_top);
 
     printk("ERROR: Returned from user mode!\n");
+    */
 
-    while (1){
+    asm volatile("sti");
+
+    while (1)
+    {
         asm volatile("hlt");
     }
 }

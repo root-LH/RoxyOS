@@ -8,8 +8,5 @@ void idle_task(void)
     {
         asm volatile("sti");
         asm volatile("hlt");
-
-        if (scheduler_need_resched())
-            process_yield();
     }
 }

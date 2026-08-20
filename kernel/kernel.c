@@ -28,8 +28,8 @@ void task1(void)
 {
     while (1)
     {
-        printk("A");
-        process_sleep(500);
+        sys_write("A");
+        process_sleep(300);
     }
 }
 
@@ -37,8 +37,27 @@ void task2(void)
 {
     while (1)
     {
-        printk("B");
-        process_sleep(100);
+        sys_write("B");
+        process_sleep(200);
+    }
+}
+
+void user_task1(void)
+{
+    while (1)
+    {
+        sys_write("C");
+        sys_sleep(400);
+        sys_exit(0);
+    }
+}
+
+void user_task2(void)
+{
+    while (1)
+    {
+        sys_write("D");
+        sys_sleep(100);
     }
 }
 
@@ -46,7 +65,9 @@ void user_mode_entry(void)
 {
     while (1)
     {
-        
+        sys_write("TEST");
+        for (volatile uint32_t i = 0; i < 1000000; i++)
+            ;
     }
 }
 
@@ -79,21 +100,32 @@ void kernel_main(void)
     tss_flush();
 
     scheduler_init();
-    /*
-    process_t *idle = process_create_kernel(idle_task);
 
+    process_t *idle = process_create_kernel(idle_task);
+/*
     process_t *p1 = process_create_kernel(task1);
     process_t *p2 = process_create_kernel(task2);
 
-    scheduler_set_idle(idle);
+    process_t *user1 = process_create_user(user_task1);
+    process_t *user2 = process_create_user(user_task2);
+*/
+    //process_t *user = process_create_user(user_mode_entry);
 
+    scheduler_set_idle(idle);
+    scheduler_add(idle);
+/*
     scheduler_add(p1);
     scheduler_add(p2);
+    //scheduler_add(user);
 
+    scheduler_add(user1);
+    scheduler_add(user2);
+*/
     asm volatile("sti");
-
+/*
     process_switch(p1);
-    */
+*/
+    //process_enter_user(user1);
 
     /*
     uint32_t user_stack_top = (uint32_t)(user_stack + sizeof(user_stack));
@@ -102,8 +134,6 @@ void kernel_main(void)
 
     printk("ERROR: Returned from user mode!\n");
     */
-
-    asm volatile("sti");
 
     while (1)
     {

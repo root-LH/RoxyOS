@@ -2,6 +2,9 @@
 
 global isr128
 extern syscall_handler
+extern scheduler_need_resched
+extern scheduler_clear_resched
+extern process_reschedule_from_trap
 
 section .text
 
@@ -29,6 +32,21 @@ isr128:
     call syscall_handler
     add esp, 4
 
+    call scheduler_need_resched
+
+    test eax, eax
+    jz .no_resched
+
+    push esp
+    call process_reschedule_from_trap
+    add esp, 4
+
+    mov esp, eax
+
+    call scheduler_clear_resched
+
+.no_resched:
+
     pop gs
     pop fs
     pop es
@@ -36,6 +54,6 @@ isr128:
 
     popa
 
-    add esp, 8          ; int_no + err_code 제거
+    add esp, 8
 
     iretd

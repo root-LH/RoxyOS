@@ -61,5 +61,8 @@ void isr_handler(registers_t *r)
     printk("\nEFLAGS = ");
     printk_hex(r->eflags);
 
+    printk("\nERR_CODE = ");
+    printk_hex(r->err_code);
+
     panic("");
 }

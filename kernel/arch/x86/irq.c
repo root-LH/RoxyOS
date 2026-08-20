@@ -4,20 +4,38 @@
 #include "../../include/pit.h"
 #include "../../include/keyboard.h"
 #include "../../include/scheduler.h"
+#include "../../include/tss.h"
+
+#include "../../include/printk.h"
 
 #define PIC1_COMMAND 0x20
 #define PIC2_COMMAND 0xA0
 #define PIC_EOI      0x20
 
-void irq_handler(registers_t *r)
+registers_t *irq_handler(registers_t *r)
 {
+    process_t *current_proc = process_current();
+    registers_t *next_frame = r;
+
+    if (current_proc && r->int_no == 32)
+    {
+        current_proc->trapframe = r;
+    }
+
     if (r->int_no == 32)
     {
         timer_ticks++;
 
         scheduler_wakeup();
-
         scheduler_tick();
+
+        if (scheduler_need_resched())
+        {
+            next_frame =
+                process_reschedule_from_trap(r);
+            
+            scheduler_clear_resched();
+        }
     }
     else if (r->int_no == 33)
     {
@@ -28,6 +46,8 @@ void irq_handler(registers_t *r)
         outb(PIC2_COMMAND, PIC_EOI);
 
     outb(PIC1_COMMAND, PIC_EOI);
+
+    return next_frame;
 }
 
 extern void irq0();

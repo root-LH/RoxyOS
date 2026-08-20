@@ -70,6 +70,9 @@ $(BUILD)/usermode.o: kernel/arch/x86/usermode.asm | $(BUILD)
 $(BUILD)/process_switch.o: kernel/arch/x86/process_switch.asm | $(BUILD)
 	$(ASM) -f elf32 $< -o $@
 
+$(BUILD)/process_enter_user.o: kernel/arch/x86/process_enter_user.asm | $(BUILD)
+	$(ASM) -f elf32 $< -o $@
+
 $(BUILD)/isrc.o: kernel/arch/x86/isr.c | $(BUILD)
 	$(CC) $(CFLAGS) -c $< -o $@
 
@@ -179,6 +182,7 @@ $(BUILD)/kernel.elf: \
 	$(BUILD)/process_switch.o \
 	$(BUILD)/scheduler.o \
 	$(BUILD)/idle.o \
+	$(BUILD)/process_enter_user.o \
 	$(BUILD)/kernel.o | $(BUILD)
 	$(LD) $(LDFLAGS) -o $@ $^
 

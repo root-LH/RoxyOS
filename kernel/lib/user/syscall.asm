@@ -6,6 +6,7 @@ global sys_open
 global sys_read
 global sys_close
 global sys_exit
+global sys_sleep
 
 sys_write:
     mov eax, 0
@@ -42,6 +43,12 @@ sys_exit:
     mov eax, 5
     mov ebx, [esp+4]    ; status
     int 0x80
+
+sys_sleep:
+    mov eax, 6
+    mov ebx, [esp+4]    ; ticks
+    int 0x80
+    ret
 
 .loop:
     jmp .loop

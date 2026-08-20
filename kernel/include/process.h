@@ -2,9 +2,11 @@
 #define PROCESS_H
 
 #include <stdint.h>
+#include "isr.h"
 
 #define MAX_PROCESS        16
 #define PROCESS_STACK_SIZE 4096
+#define USER_STACK_SIZE 4096
 
 typedef enum
 {
@@ -29,6 +31,15 @@ typedef struct context
     uint32_t ebp;
 } context_t;
 
+typedef struct user_context
+{
+    uint32_t eip;
+    uint32_t cs;
+    uint32_t eflags;
+    uint32_t esp;
+    uint32_t ss;
+} user_context_t;
+
 typedef struct process
 {
     uint32_t pid;
@@ -37,14 +48,23 @@ typedef struct process
     process_type_t type;
 
     context_t *context;
+    registers_t *trapframe;
+    user_context_t *user_context;
+
+    void (*entry)(void);
+
+    uint8_t *kernel_stack;
+    uint8_t *user_stack;
+
+    uint32_t user_stack_top;
 
     uint32_t wakeup_tick;
-
-    uint8_t stack[PROCESS_STACK_SIZE];
 
 } process_t;
 
 process_t *process_create_kernel(void (*entry)(void));
+
+process_t *process_create_user(void (*entry)(void));
 
 process_t *process_current(void);
 
@@ -59,5 +79,9 @@ void process_yield(void);
 void process_exit(void);
 
 void process_sleep(uint32_t ticks);
+
+void process_enter_user(process_t *proc);
+
+registers_t *process_reschedule_from_trap(registers_t *frame);
 
 #endif

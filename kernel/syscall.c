@@ -4,9 +4,17 @@
 #include "include/keyboard.h"
 #include "include/vfs.h"
 #include "include/fd.h"
+#include "include/process.h"
+#include "include/pit.h"
+#include "include/scheduler.h"
 
 void syscall_handler(registers_t *r)
 {
+    process_t *proc = process_current();
+
+    if (proc && proc->type == PROCESS_USER)
+        proc->trapframe = r;
+
     switch (r->eax)
     {
         case SYS_WRITE:
@@ -81,6 +89,20 @@ void syscall_handler(registers_t *r)
                     "hlt"
                 );
             }
+
+            break;
+        }
+
+        case SYS_SLEEP:
+        {
+            process_t *proc = process_current();
+
+            proc->wakeup_tick =
+                pit_get_ticks() + r->ebx;
+
+            proc->state = PROCESS_BLOCKED;
+
+            scheduler_request_resched();
 
             break;
         }

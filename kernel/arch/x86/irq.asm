@@ -47,6 +47,8 @@ irq_common_stub:
     call irq_handler
     add esp, 4
 
+    mov esp, eax
+
     pop gs
     pop fs
     pop es

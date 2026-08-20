@@ -9,6 +9,7 @@
 #define SYS_READ 3
 #define SYS_CLOSE 4
 #define SYS_EXIT 5
+#define SYS_SLEEP 6
 
 void syscall_handler(registers_t *r);
 
@@ -19,5 +20,6 @@ int sys_open(const char *path);
 int sys_read(int fd, void *buffer, uint32_t size);
 int sys_close(int fd);
 void sys_exit(int status);
+void sys_sleep(int ticks);
 
 #endif

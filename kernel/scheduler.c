@@ -34,32 +34,42 @@ void scheduler_add(process_t *proc)
     processes[process_count++] = proc;
 }
 
-void scheduler_schedule(void)
+process_t *scheduler_schedule(void)
 {
     process_t *current_proc = process_current();
 
-    int next = current;
+    int start = -1;
 
     for (int i = 0; i < process_count; i++)
     {
-        next = (next + 1) % process_count;
-
-        if (processes[next] == current_proc)
-            continue;
-
-        if (processes[next]->state == PROCESS_READY)
+        if (processes[i] == current_proc)
         {
-            current = next;
-            process_switch(processes[next]);
-            return;
+            start = i;
+            break;
         }
     }
 
-    if (idle_process && current_proc != idle_process)
+    if (start == -1)
+        return idle_process;
+
+    for (int i = 1; i <= process_count; i++)
     {
-        process_switch(idle_process);
-        return;
+        int next = (start + i) % process_count;
+
+        process_t *proc = processes[next];
+
+        if (proc == current_proc)
+            continue;
+
+        if (proc->state != PROCESS_READY)
+            continue;
+
+        current = next;
+
+        return proc;
     }
+
+    return idle_process;
 }
 
 void scheduler_tick(void)
@@ -71,7 +81,6 @@ void scheduler_tick(void)
         scheduler_ticks = 0;
 
         need_resched = 1;
-
     }
 }
 
@@ -112,6 +121,8 @@ void scheduler_remove(process_t *proc)
 
 void scheduler_wakeup(void)
 {
+    uint32_t now = pit_get_ticks();
+
     for (int i = 0; i < process_count; i++)
     {
         process_t *proc = processes[i];
@@ -119,10 +130,15 @@ void scheduler_wakeup(void)
         if (proc->state != PROCESS_BLOCKED)
             continue;
 
-        if (pit_get_ticks() >= proc->wakeup_tick)
+        if ((int32_t)(now - proc->wakeup_tick) >= 0)
         {
             proc->state = PROCESS_READY;
             need_resched = 1;
         }
     }
+}
+
+void scheduler_request_resched(void)
+{
+    need_resched = 1;
 }

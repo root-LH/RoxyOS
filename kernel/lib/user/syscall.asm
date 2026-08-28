@@ -41,14 +41,11 @@ sys_close:
 
 sys_exit:
     mov eax, 5
-    mov ebx, [esp+4]    ; status
     int 0x80
+    ret
 
 sys_sleep:
     mov eax, 6
     mov ebx, [esp+4]    ; ticks
     int 0x80
     ret
-
-.loop:
-    jmp .loop

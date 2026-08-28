@@ -79,19 +79,8 @@ void syscall_handler(registers_t *r)
         }
 
         case SYS_EXIT:
-        {
-            printk("Process Exit\n");
-
-            while (1)
-            {
-                asm volatile(
-                    "sti\n\t"
-                    "hlt"
-                );
-            }
-
+            process_exit();
             break;
-        }
 
         case SYS_SLEEP:
         {

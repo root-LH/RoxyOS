@@ -192,16 +192,11 @@ void process_exit(void)
 {
     process_t *proc = process_current();
 
+    if (!proc)
+        return;
+
     proc->state = PROCESS_EXITED;
-
-    scheduler_remove(proc);
-
-    scheduler_schedule();
-
-    while (1)
-    {
-        asm volatile("hlt");
-    }
+    scheduler_request_resched();
 }
 
 void process_sleep(uint32_t ticks)

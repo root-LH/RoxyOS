@@ -19,6 +19,7 @@
 #include "include/process.h"
 #include "include/scheduler.h"
 #include "include/idle.h"
+#include "include/paging.h"
 
 __attribute__((aligned(16)))
 static uint8_t user_stack[4096];
@@ -80,6 +81,10 @@ void kernel_main(void)
     idt_init();
     irq_install();
 
+    /* Memory Manager */
+    pmm_init(127);
+    paging_init();
+
     /* Interrupt Controller */
     pic_remap();
     pit_init(100);
@@ -103,28 +108,11 @@ void kernel_main(void)
     scheduler_init();
 
     process_t *idle = process_create_kernel(idle_task);
-    /*
-    process_t *user1 = process_create_user(user_task1);
-    process_t *user2 = process_create_user(user_task2);
-    */
+
     scheduler_set_idle(idle);
     scheduler_add(idle);
-    /*
-    scheduler_add(user1);
-    scheduler_add(user2);
-    */
+
     asm volatile("sti");
-
-    /* Start the exit-test process; it should hand off to user2 via SYS_EXIT. */
-    //process_enter_user(user1);
-
-    /*
-    uint32_t user_stack_top = (uint32_t)(user_stack + sizeof(user_stack));
-
-    switch_to_user_mode(user_stack_top);
-
-    printk("ERROR: Returned from user mode!\n");
-    */
 
     while (1)
     {

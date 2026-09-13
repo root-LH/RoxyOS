@@ -73,6 +73,9 @@ $(BUILD)/process_switch.o: kernel/arch/x86/process_switch.asm | $(BUILD)
 $(BUILD)/process_enter_user.o: kernel/arch/x86/process_enter_user.asm | $(BUILD)
 	$(ASM) -f elf32 $< -o $@
 
+$(BUILD)/paging_asm.o: kernel/arch/x86/paging_asm.asm | $(BUILD)
+	$(ASM) -f elf32 $< -o $@
+
 $(BUILD)/isrc.o: kernel/arch/x86/isr.c | $(BUILD)
 	$(CC) $(CFLAGS) -c $< -o $@
 
@@ -142,6 +145,9 @@ $(BUILD)/scheduler.o: kernel/scheduler.c | $(BUILD)
 $(BUILD)/idle.o: kernel/idle.c | $(BUILD)
 	$(CC) $(CFLAGS) -c $< -o $@
 
+$(BUILD)/paging.o: kernel/paging.c | $(BUILD)
+	$(CC) $(CFLAGS) -c $< -o $@
+
 $(BUILD)/kernel.o: kernel/kernel.c | $(BUILD)
 	$(CC) $(CFLAGS) -c $< -o $@
 
@@ -183,6 +189,8 @@ $(BUILD)/kernel.elf: \
 	$(BUILD)/scheduler.o \
 	$(BUILD)/idle.o \
 	$(BUILD)/process_enter_user.o \
+	$(BUILD)/paging_asm.o \
+	$(BUILD)/paging.o \
 	$(BUILD)/kernel.o | $(BUILD)
 	$(LD) $(LDFLAGS) -o $@ $^
 

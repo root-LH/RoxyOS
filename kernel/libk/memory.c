@@ -1,5 +1,10 @@
 #include "../include/memory.h"
 
+#define MAX_FRAMES 32768
+
+static uint32_t pmm_bitmap[MAX_FRAMES / 32];
+static uint32_t total_frames = 0;
+
 static uint8_t *heap_ptr = (uint8_t *)KERNEL_HEAP_START;
 static uint8_t *heap_end = (uint8_t *)(KERNEL_HEAP_START + KERNEL_HEAP_SIZE);
 
@@ -71,6 +76,18 @@ static void coalesce_blocks(void)
     }
 }
 
+static void bitmap_set(uint32_t frame) {
+    pmm_bitmap[frame / 32] |= (1 << (frame % 32));
+}
+
+static void bitmap_clear(uint32_t frame) {
+    pmm_bitmap[frame / 32] &= ~(1 << (frame % 32));
+}
+
+static int bitmap_test(uint32_t frame) {
+    return (pmm_bitmap[frame / 32] & (1 << (frame % 32))) != 0;
+}
+
 void memory_init(void)
 {
     heap_ptr = (uint8_t *)KERNEL_HEAP_START;
@@ -117,4 +134,53 @@ void kfree(void *ptr)
 
     header->free = 1;
     coalesce_blocks();
+}
+
+void pmm_init(uint32_t total_memory_mb) {
+    uint16_t entry_count = *((uint16_t*)0x9000);
+    struct e820_entry* mmap = (struct e820_entry*)0x9004;
+
+    total_frames = (total_memory_mb * 1024 * 1024) / PAGE_SIZE;
+
+    for (uint32_t i = 0; i < total_frames / 32; i++) {
+        pmm_bitmap[i] = 0xFFFFFFFF;
+    }
+
+    for (int i = 0; i < entry_count; i++) {
+        if (mmap[i].type == 1) {
+            uint32_t start_frame = (uint32_t)((mmap[i].base_addr + PAGE_SIZE - 1) / PAGE_SIZE);
+            uint32_t frame_count = (uint32_t)(mmap[i].length / PAGE_SIZE);
+
+            for (uint32_t f = 0; f < frame_count; f++) {
+                if (start_frame + f < total_frames) {
+                    bitmap_clear(start_frame + f);
+                }
+            }
+        }
+    }
+
+    uint32_t protect_end_addr = KERNEL_HEAP_START + KERNEL_HEAP_SIZE;
+    uint32_t protect_frames = (protect_end_addr + PAGE_SIZE - 1) / PAGE_SIZE;
+
+    for (uint32_t f = 0; f < protect_frames; f++)
+    {
+        bitmap_set(f);
+    }
+}
+
+void* pmm_alloc_frame(void) {
+    for (uint32_t f = 0; f < total_frames; f++) {
+        if (!bitmap_test(f)) {
+            bitmap_set(f);
+            return (void*)(f * PAGE_SIZE);
+        }
+    }
+    return 0;
+}
+
+void pmm_free_frame(void* frame_addr) {
+    uint32_t frame = (uint32_t)frame_addr / PAGE_SIZE;
+    if (frame < total_frames) {
+        bitmap_clear(frame);
+    }
 }

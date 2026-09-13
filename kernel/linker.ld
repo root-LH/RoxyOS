@@ -2,26 +2,28 @@ ENTRY(_start)
 
 SECTIONS
 {
-    . = 0x10000;
+    . = 0xC0010000;
 
-    .text :
+    .text : AT(ADDR(.text) - 0xC0000000)
     {
         *(.text)
     }
 
-    .rodata :
+    .rodata : AT(ADDR(.rodata) - 0xC0000000)
     {
         *(.rodata)
     }
 
-    .data :
+    .data : AT(ADDR(.data) - 0xC0000000)
     {
         *(.data)
     }
 
-    .bss :
+    .bss : AT(ADDR(.bss) - 0xC0000000)
     {
         *(COMMON)
         *(.bss)
     }
+
+    _kernel_end = .;
 }

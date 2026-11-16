@@ -6,6 +6,8 @@
 #include "include/keyboard.h"
 #include "include/ata.h"
 #include "include/elf_loader.h"
+#include "include/console.h"
+#include "include/memory.h"
 
 static void cmd_help(int argc, char **argv);
 static void cmd_clear(int argc, char **argv);
@@ -46,14 +48,133 @@ static command_t commands[] =
 
 static const int command_count = sizeof(commands) / sizeof(commands[0]);
 
-void shell_init(void)
-{
-    shell_print_prompt();
-}
-
 void shell_print_prompt(void)
 {
     printk("RoxyOS> ");
+}
+
+static char input_buffer[INPUT_BUFFER_SIZE];
+static uint32_t input_length = 0;
+static uint32_t cursor_position = 0;
+static uint32_t previous_length = 0;
+
+static void shell_get_screen_pos(uint32_t index, uint16_t *x, uint16_t *y)
+{
+    uint32_t pos = console_get_input_start_x() + index;
+
+    *x = pos % VGA_WIDTH;
+    *y = console_get_input_start_y() + pos / VGA_WIDTH;
+}
+
+static void shell_redraw_input(void)
+{
+    uint16_t x, y;
+
+    for (uint32_t i = 0; i < previous_length; i++)
+    {
+        shell_get_screen_pos(i, &x, &y);
+        vga_putentry_at(' ', x, y);
+    }
+
+    for (uint32_t i = 0; i < input_length; i++)
+    {
+        shell_get_screen_pos(i, &x, &y);
+        vga_putentry_at(input_buffer[i], x, y);
+    }
+
+    previous_length = input_length;
+
+    shell_get_screen_pos(cursor_position, &x, &y);
+    vga_set_cursor(x, y);
+}
+
+static const char *shell_readline(void)
+{
+    input_length = 0;
+    cursor_position = 0;
+    previous_length = 0;
+    input_buffer[0] = '\0';
+
+    console_set_input_start();
+
+    while (1)
+    {
+        char c = keyboard_getchar();
+
+        if (c == KEY_LEFT)
+        {
+            if (cursor_position > 0)
+            {
+                cursor_position--;
+                shell_redraw_input();
+            }
+            continue;
+        }
+
+        if (c == KEY_RIGHT)
+        {
+            if (cursor_position < input_length)
+            {
+                cursor_position++;
+                shell_redraw_input();
+            }
+            continue;
+        }
+
+        if (c == KEY_UP || c == KEY_DOWN)
+            continue;
+
+        if (c == '\b')
+        {
+            if (cursor_position == 0)
+                continue;
+
+            for (uint32_t i = cursor_position - 1; i < input_length - 1; i++)
+                input_buffer[i] = input_buffer[i + 1];
+
+            input_length--;
+            cursor_position--;
+            input_buffer[input_length] = '\0';
+
+            shell_redraw_input();
+            continue;
+        }
+
+        if (c == '\n')
+        {
+            cursor_position = input_length;
+            shell_redraw_input();
+            vga_putchar('\n');
+
+            return input_buffer;
+        }
+
+        if (input_length >= INPUT_BUFFER_SIZE - 1)
+            continue;
+
+        for (uint32_t i = input_length; i > cursor_position; i--)
+            input_buffer[i] = input_buffer[i - 1];
+
+        input_buffer[cursor_position] = c;
+
+        input_length++;
+        cursor_position++;
+
+        input_buffer[input_length] = '\0';
+        shell_redraw_input();
+    }
+}
+
+void shell_task(void)
+{
+    while (1)
+    {
+        shell_print_prompt();
+
+        const char *line = shell_readline();
+
+        shell_execute(line);
+    }
 }
 
 static void cmd_help(int argc, char **argv)
@@ -139,13 +260,28 @@ static void cmd_cat(int argc, char **argv)
         return;
     }
 
-    char buffer[4097];
+    int file_size = vfs_size(argv[1]);
 
-    int size = vfs_read(argv[1], buffer, sizeof(buffer) - 1);
+    if (file_size < 0)
+    {
+        printk("Read failed.\n");
+        return;
+    }
+
+    char *buffer = kmalloc(file_size + 1);
+
+    if (!buffer)
+    {
+        printk("Out of memory.\n");
+        return;
+    }
+
+    int size = (file_size == 0) ? 0 : vfs_read(argv[1], buffer, file_size);
 
     if (size < 0)
     {
         printk("Read failed.\n");
+        kfree(buffer);
         return;
     }
 
@@ -153,6 +289,8 @@ static void cmd_cat(int argc, char **argv)
 
     printk(buffer);
     printk("\n");
+
+    kfree(buffer);
 }
 
 static void cmd_write(int argc, char **argv)

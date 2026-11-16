@@ -5,7 +5,7 @@
 #include "isr.h"
 
 #define MAX_PROCESS        16
-#define PROCESS_STACK_SIZE 4096
+#define PROCESS_STACK_SIZE 8192
 #define USER_STACK_SIZE 4096
 
 typedef enum
@@ -14,7 +14,8 @@ typedef enum
     PROCESS_READY,
     PROCESS_RUNNING,
     PROCESS_BLOCKED,
-    PROCESS_EXITED
+    PROCESS_EXITED,
+    PROCESS_WAITING
 } process_state_t;
 
 typedef enum
@@ -83,5 +84,7 @@ void process_sleep(uint32_t ticks);
 void process_enter_user(process_t *proc);
 
 registers_t *process_reschedule_from_trap(registers_t *frame);
+
+void process_start(process_t *first) __attribute__((noreturn));
 
 #endif

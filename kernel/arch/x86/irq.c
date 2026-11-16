@@ -17,10 +17,8 @@ registers_t *irq_handler(registers_t *r)
     process_t *current_proc = process_current();
     registers_t *next_frame = r;
 
-    if (current_proc && r->int_no == 32)
-    {
+    if (current_proc)
         current_proc->trapframe = r;
-    }
 
     if (r->int_no == 32)
     {
@@ -28,18 +26,17 @@ registers_t *irq_handler(registers_t *r)
 
         scheduler_wakeup();
         scheduler_tick();
-
-        if (scheduler_need_resched())
-        {
-            next_frame =
-                process_reschedule_from_trap(r);
-            
-            scheduler_clear_resched();
-        }
     }
     else if (r->int_no == 33)
     {
         keyboard_handler();
+    }
+
+    if (scheduler_need_resched())
+    {
+        next_frame = process_reschedule_from_trap(r);
+
+        scheduler_clear_resched();
     }
 
     if (r->int_no >= 40)

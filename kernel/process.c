@@ -7,6 +7,7 @@
 #include "include/printk.h"
 
 extern void process_enter_user_asm(user_context_t *context);
+extern void process_start_asm(registers_t *frame) __attribute__((noreturn));
 
 static uint8_t kernel_stacks[MAX_PROCESS][PROCESS_STACK_SIZE];
 static uint8_t user_stacks[MAX_PROCESS][USER_STACK_SIZE];
@@ -224,6 +225,18 @@ void process_enter_user(process_t *proc)
     );
 
     process_enter_user_asm(proc->user_context);
+}
+
+void process_start(process_t *first)
+{
+    current_process = first;
+    first->state = PROCESS_RUNNING;
+
+    tss_set_kernel_stack(
+        (uint32_t)(first->kernel_stack + PROCESS_STACK_SIZE)
+    );
+
+    process_start_asm(first->trapframe);
 }
 
 registers_t *process_reschedule_from_trap(registers_t *frame)

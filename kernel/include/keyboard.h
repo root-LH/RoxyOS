@@ -3,9 +3,13 @@
 
 #define INPUT_BUFFER_SIZE 256
 
+#define KEY_LEFT  ((char)0x81)
+#define KEY_RIGHT ((char)0x82)
+#define KEY_UP    ((char)0x83)
+#define KEY_DOWN  ((char)0x84)
+
 void keyboard_init(void);
 void keyboard_handler(void);
-void keyboard_set_input_start(void);
 char keyboard_getchar(void);
 
 #endif

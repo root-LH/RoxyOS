@@ -95,9 +95,6 @@ void kernel_main(void)
 
     /* Kernel Subsystem */
     fd_init();
-    shell_init();
-    
-    keyboard_set_input_start();
 
     /* TSS */
     tss_init();
@@ -109,13 +106,11 @@ void kernel_main(void)
 
     process_t *idle = process_create_kernel(idle_task);
 
+    process_t *shell = process_create_kernel(shell_task);
+
     scheduler_set_idle(idle);
     scheduler_add(idle);
+    scheduler_add(shell);
 
-    asm volatile("sti");
-
-    while (1)
-    {
-        asm volatile("hlt");
-    }
+    process_start(shell);
 }

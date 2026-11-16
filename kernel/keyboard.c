@@ -3,8 +3,8 @@
 #include "include/printk.h"
 #include "include/vga.h"
 #include "include/string.h"
-#include "include/shell.h"
-#include "include/console.h"
+#include "include/process.h"
+#include "include/scheduler.h"
 
 #define KEYBOARD_DATA_PORT   0x60
 #define KEYBOARD_STATUS_PORT 0x64
@@ -75,21 +75,18 @@ static const char shift_keymap[128] =
     ' '
 };
 
-#define INPUT_BUFFER_SIZE 256
 
-static char input_buffer[INPUT_BUFFER_SIZE];
-static uint32_t input_length = 0;
-static uint32_t cursor_position = 0;
 static int shift_pressed = 0;
 static int caps_lock = 0;
 static int extended_scancode = 0;
-static uint32_t previous_length = 0;
 
 #define KEYBOARD_QUEUE_SIZE 128
 static char keyboard_queue[KEYBOARD_QUEUE_SIZE];
 
-static uint32_t keyboard_head = 0;
-static uint32_t keyboard_tail = 0;
+static volatile uint32_t keyboard_head = 0;
+static volatile uint32_t keyboard_tail = 0;
+
+static process_t *keyboard_waiter = 0;
 
 static void keyboard_queue_push(char c)
 {
@@ -101,60 +98,46 @@ static void keyboard_queue_push(char c)
 
     keyboard_queue[keyboard_tail] = c;
     keyboard_tail = next;
+
+    if (keyboard_waiter && keyboard_waiter->state == PROCESS_WAITING)
+    {
+        keyboard_waiter->state = PROCESS_READY;
+        scheduler_request_resched();
+    }
+
+    keyboard_waiter = 0;
 }
 
 char keyboard_getchar(void)
 {
-    while (keyboard_head == keyboard_tail)
+    while (1)
     {
-        asm volatile(
-            "sti\n\t"
-            "hlt"
-        );
+        asm volatile("cli");
+
+        if (keyboard_head != keyboard_tail)
+        {
+            char c = keyboard_queue[keyboard_head];
+
+            keyboard_head =
+                (keyboard_head + 1) % KEYBOARD_QUEUE_SIZE;
+
+            asm volatile("sti");
+
+            return c;
+        }
+
+        process_t *proc = process_current();
+
+        if (proc)
+        {
+            proc->state = PROCESS_WAITING;
+            keyboard_waiter = proc;
+            scheduler_request_resched();
+        }
+
+        asm volatile("sti; hlt");
     }
-
-    char c = keyboard_queue[keyboard_head];
-
-    keyboard_head =
-        (keyboard_head + 1) % KEYBOARD_QUEUE_SIZE;
-
-    return c;
 }
-
-static void keyboard_get_screen_pos(
-    uint32_t index,
-    uint16_t *x,
-    uint16_t *y)
-{
-    uint32_t pos = console_get_input_start_x() + index;
-
-    *x = pos % VGA_WIDTH;
-    *y = console_get_input_start_y() + pos / VGA_WIDTH;
-}
-
-static void keyboard_redraw_input(void)
-{
-    uint16_t x, y;
-
-    for (uint32_t i = 0; i < previous_length; i++)
-    {
-        keyboard_get_screen_pos(i, &x, &y);
-        vga_putentry_at(' ', x, y);
-    }
-
-    for (uint32_t i = 0; i < input_length; i++)
-    {
-        keyboard_get_screen_pos(i, &x, &y);
-        vga_putentry_at(input_buffer[i], x, y);
-    }
-
-    previous_length = input_length;
-
-    keyboard_get_screen_pos(cursor_position, &x, &y);
-    vga_set_cursor(x, y);
-}
-
-
 
 void keyboard_init(void)
 {
@@ -170,37 +153,18 @@ void keyboard_handler(void)
         extended_scancode = 1;
         return;
     }
-    
+
     if (extended_scancode)
     {
         extended_scancode = 0;
 
         switch (scancode)
         {
-            case 0x4B:
-                if (cursor_position > 0)
-                {
-                    cursor_position--;
-                    keyboard_redraw_input();
-                }
-                return;
-
-            case 0x4D:
-                if (cursor_position < input_length)
-                {
-                    cursor_position++;
-                    keyboard_redraw_input();
-                }
-                return;
-
-            case 0x48:   // Up
-                return;
-
-            case 0x50:   // Down
-                return;
-
-            default:
-                return;
+            case 0x4B: keyboard_queue_push(KEY_LEFT);  return;
+            case 0x4D: keyboard_queue_push(KEY_RIGHT); return;
+            case 0x48: keyboard_queue_push(KEY_UP);    return;
+            case 0x50: keyboard_queue_push(KEY_DOWN);  return;
+            default:   return;
         }
     }
 
@@ -258,63 +222,5 @@ void keyboard_handler(void)
     if (c == 0)
         return;
 
-    if (c == '\b')
-    {
-        if (cursor_position == 0)
-            return;
-
-        for (uint32_t i = cursor_position - 1; i < input_length - 1; i++)
-        {
-            input_buffer[i] = input_buffer[i + 1];
-        }
-
-        input_length--;
-        cursor_position--;
-        input_buffer[input_length] = '\0';
-
-        keyboard_redraw_input();
-        return;
-    }
-
-    if (c == '\n')
-    {
-        vga_putchar('\n');
-
-        shell_execute(input_buffer);
-
-        input_length = 0;
-        cursor_position = 0;
-        previous_length = 0;
-        input_buffer[0] = '\0';
-
-        shell_print_prompt();
-
-        keyboard_set_input_start();
-
-        return;
-    }
-
     keyboard_queue_push(c);
-
-    if (input_length >= INPUT_BUFFER_SIZE - 1)
-        return;
-
-    for (uint32_t i = input_length; i > cursor_position; i--)
-    {
-        input_buffer[i] = input_buffer[i - 1];
-    }
-
-    input_buffer[cursor_position] = c;
-
-    input_length++;
-    cursor_position++;
-
-    input_buffer[input_length] = '\0';
-    keyboard_redraw_input();
-}
-
-void keyboard_set_input_start(void)
-{
-    console_set_input_start();
-    previous_length = 0;
 }

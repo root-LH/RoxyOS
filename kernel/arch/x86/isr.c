@@ -74,10 +74,9 @@ static registers_t *kill_current_user(registers_t *r)
 {
     process_t *proc = process_current();
 
-    proc->trapframe = r;
-    proc->state = PROCESS_EXITED;
-
     kprintf("[fault] pid %u killed\n", proc->pid);
+
+    process_kill(proc, -1);
 
     registers_t *next = process_reschedule_from_trap(r);
     scheduler_clear_resched();

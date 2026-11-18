@@ -19,7 +19,7 @@ char sys_getchar(void);
 int sys_open(const char *path);
 int sys_read(int fd, void *buffer, uint32_t size);
 int sys_close(int fd);
-void sys_exit(void);
+void sys_exit(int code);
 void sys_sleep(int ticks);
 
 #endif

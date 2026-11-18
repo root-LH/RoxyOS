@@ -8,6 +8,7 @@
 #include "include/elf_loader.h"
 #include "include/console.h"
 #include "include/memory.h"
+#include "include/process.h"
 
 static void cmd_help(int argc, char **argv);
 static void cmd_clear(int argc, char **argv);
@@ -22,6 +23,7 @@ static void cmd_diskread(int argc, char **argv);
 static void cmd_diskwrite(int argc, char **argv);
 static void cmd_mkfs(int argc, char **argv);
 static void cmd_run(int argc, char **argv);
+static void cmd_ps(int argc, char **argv);
 
 typedef struct
 {
@@ -43,7 +45,8 @@ static command_t commands[] =
     { "diskread", cmd_diskread },
     { "diskwrite", cmd_diskwrite },
     { "mkfs", cmd_mkfs },
-    { "run", cmd_run }
+    { "run", cmd_run },
+    { "ps", cmd_ps }
 };
 
 static const int command_count = sizeof(commands) / sizeof(commands[0]);
@@ -193,6 +196,7 @@ static void cmd_help(int argc, char **argv)
     printk("  write - Write text to a file\n");
     printk("  rm    - Remove a file\n");
     printk("  run   - Execute program\n");
+    printk("  ps    - List processes\n");
 }
 
 static void cmd_clear(int argc, char **argv)
@@ -445,4 +449,32 @@ void shell_execute(const char *cmd)
     }
 
     printk("Unknown command\n");
+}
+static void cmd_ps(int argc, char **argv)
+{
+    (void)argc;
+    (void)argv;
+
+    process_t *self = process_current();
+    int used = 0;
+
+    kprintf("SLOT  PID   TYPE    STATE\n");
+
+    for (int i = 0; i < MAX_PROCESS; i++)
+    {
+        process_t *proc = process_get_slot(i);
+
+        if (proc->state == PROCESS_UNUSED)
+            continue;
+
+        used++;
+
+        kprintf("%-4d  %-4u  %-6s  %s%s\n",
+                i, proc->pid,
+                proc->type == PROCESS_USER ? "user" : "kernel",
+                process_state_name(proc->state),
+                proc == self ? " *" : "");
+    }
+
+    kprintf("%d/%d slots in use\n", used, MAX_PROCESS);
 }

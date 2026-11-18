@@ -14,7 +14,7 @@ typedef enum
     PROCESS_READY,
     PROCESS_RUNNING,
     PROCESS_BLOCKED,
-    PROCESS_EXITED,
+    PROCESS_EXITED,     /* zombie: finished, slot not yet reaped */
     PROCESS_WAITING
 } process_state_t;
 
@@ -61,6 +61,8 @@ typedef struct process
 
     uint32_t wakeup_tick;
 
+    int32_t exit_code;
+
 } process_t;
 
 process_t *process_create_kernel(void (*entry)(void));
@@ -77,7 +79,22 @@ void process_switch_asm(context_t **old, context_t *new);
 
 void process_yield(void);
 
-void process_exit(void);
+/* Terminates the calling process. Never returns. */
+void process_exit(int code) __attribute__((noreturn));
+
+/*
+ * Marks proc as exited (zombie). If proc is the current process, a
+ * reschedule is requested; the caller must return to the trap path.
+ */
+void process_kill(process_t *proc, int code);
+
+/* Frees every exited process slot that is no longer running. */
+void process_reap(void);
+
+/* Returns the process in table slot i (any state), or 0 if out of range. */
+process_t *process_get_slot(int i);
+
+const char *process_state_name(process_state_t state);
 
 void process_sleep(uint32_t ticks);
 

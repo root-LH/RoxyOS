@@ -60,7 +60,7 @@ void user_task2(void)
     {
         sys_write("A");
         if (cnt++ == 1000)
-            sys_exit();
+            sys_exit(0);
     }
 }
 

@@ -41,6 +41,7 @@ sys_close:
 
 sys_exit:
     mov eax, 5
+    mov ebx, [esp+4]    ; exit code
     int 0x80
     ret
 

@@ -79,7 +79,8 @@ void syscall_handler(registers_t *r)
         }
 
         case SYS_EXIT:
-            process_exit();
+            /* isr128 sees the resched request and switches away for good */
+            process_kill(proc, (int)r->ebx);
             break;
 
         case SYS_SLEEP:

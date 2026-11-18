@@ -184,3 +184,20 @@ void pmm_free_frame(void* frame_addr) {
         bitmap_clear(frame);
     }
 }
+uint32_t pmm_total_frame_count(void)
+{
+    return total_frames;
+}
+
+uint32_t pmm_free_frame_count(void)
+{
+    uint32_t count = 0;
+
+    for (uint32_t f = 0; f < total_frames; f++)
+    {
+        if (!bitmap_test(f))
+            count++;
+    }
+
+    return count;
+}

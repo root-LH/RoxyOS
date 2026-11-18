@@ -63,11 +63,31 @@ typedef struct process
 
     int32_t exit_code;
 
+    /* 0 = kernel directory (kernel threads) */
+    uint32_t *page_directory;
+
+    /* Creator that will collect the exit code; 0 = reaped automatically. */
+    struct process *parent;
+
+    /* Child this process is blocked on in process_wait(). */
+    struct process *wait_child;
+
 } process_t;
 
 process_t *process_create_kernel(void (*entry)(void));
 
-process_t *process_create_user(void (*entry)(void));
+/*
+ * Creates a ring 3 process running in page_directory (ownership passes to
+ * the process; it is destroyed when the process is reaped).
+ */
+process_t *process_create_user(uint32_t *page_directory,
+                               uint32_t entry, uint32_t user_esp);
+
+/*
+ * Blocks until child (created by the caller) exits, reaps it and returns
+ * its exit code. Returns -1 if child is not a live child of the caller.
+ */
+int process_wait(process_t *child);
 
 process_t *process_current(void);
 

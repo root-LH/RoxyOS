@@ -5,6 +5,7 @@
 #include "include/tss.h"
 #include "include/syscall.h"
 #include "include/panic.h"
+#include "include/paging.h"
 
 #include "include/printk.h"
 
@@ -12,7 +13,6 @@ extern void process_enter_user_asm(user_context_t *context);
 extern void process_start_asm(registers_t *frame) __attribute__((noreturn));
 
 static uint8_t kernel_stacks[MAX_PROCESS][PROCESS_STACK_SIZE];
-static uint8_t user_stacks[MAX_PROCESS][USER_STACK_SIZE];
 
 static process_t process_table[MAX_PROCESS];
 static process_t *current_process = 0;
@@ -126,7 +126,8 @@ process_t *process_create_kernel(void (*entry)(void))
     return 0;
 }
 
-process_t *process_create_user(void (*entry)(void))
+process_t *process_create_user(uint32_t *page_directory,
+                               uint32_t entry, uint32_t user_esp)
 {
     static uint32_t next_pid = 1000;
 
@@ -146,12 +147,8 @@ process_t *process_create_user(void (*entry)(void))
         proc->state = PROCESS_READY;
         proc->type = PROCESS_USER;
 
-        proc->user_stack = user_stacks[i];
-
-        proc->user_stack_top =
-            (uint32_t)(proc->user_stack + USER_STACK_SIZE);
-
-        proc->entry = entry;
+        proc->page_directory = page_directory;
+        proc->user_stack_top = user_esp;
 
         proc->kernel_stack = kernel_stacks[i];
 
@@ -169,23 +166,12 @@ process_t *process_create_user(void (*entry)(void))
         proc->trapframe->es = 0x23;
         proc->trapframe->ds = 0x23;
 
-        proc->trapframe->eip = (uint32_t)entry;
+        /* First schedule irets straight into ring 3 with this frame. */
+        proc->trapframe->eip = entry;
         proc->trapframe->cs = 0x1B;
         proc->trapframe->eflags = 0x202;
-        proc->trapframe->useresp = proc->user_stack_top;
+        proc->trapframe->useresp = user_esp;
         proc->trapframe->ss = 0x23;
-
-        kstack_top -= sizeof(user_context_t);
-
-        proc->user_context = (user_context_t *)kstack_top;
-
-        memset(proc->user_context, 0, sizeof(user_context_t));
-
-        proc->user_context->eip = (uint32_t)entry;
-        proc->user_context->cs = 0x1B;
-        proc->user_context->eflags = 0x202;
-        proc->user_context->esp = proc->user_stack_top;
-        proc->user_context->ss = 0x23;
 
         return proc;
     }
@@ -247,8 +233,65 @@ void process_kill(process_t *proc, int code)
 
     klog("[proc] pid %u exited (code %d)\n", proc->pid, code);
 
+    /* Orphans have nobody to wait for them: reap them automatically. */
+    for (int i = 0; i < MAX_PROCESS; i++)
+    {
+        if (process_table[i].parent == proc)
+            process_table[i].parent = 0;
+    }
+
+    process_t *parent = proc->parent;
+
+    if (parent && parent->state == PROCESS_WAITING &&
+        parent->wait_child == proc)
+    {
+        parent->state = PROCESS_READY;
+        scheduler_request_resched();
+    }
+
     if (proc == current_process)
         scheduler_request_resched();
+}
+
+int process_wait(process_t *child)
+{
+    process_t *self = current_process;
+
+    if (!self || !child)
+        return -1;
+
+    while (1)
+    {
+        asm volatile("cli");
+
+        if (child->state == PROCESS_UNUSED || child->parent != self)
+        {
+            asm volatile("sti");
+            return -1;
+        }
+
+        if (child->state == PROCESS_EXITED)
+        {
+            int code = child->exit_code;
+
+            /* Exit code collected: let process_reap() free the slot. */
+            child->parent = 0;
+            self->wait_child = 0;
+
+            asm volatile("sti");
+
+            process_reap();
+
+            return code;
+        }
+
+        self->wait_child = child;
+        self->state = PROCESS_WAITING;
+        scheduler_request_resched();
+
+        /* The next interrupt switches away; process_kill() wakes us. */
+        asm volatile("sti; hlt");
+    }
 }
 
 void process_exit(int code)
@@ -282,7 +325,18 @@ void process_reap(void)
         if (proc == current_process)
             continue;
 
+        /* The parent has not collected the exit code yet. */
+        if (proc->parent)
+            continue;
+
         scheduler_remove(proc);
+
+        /*
+         * Safe: we are running on another process's stack and CR3, so the
+         * zombie's directory is no longer active.
+         */
+        if (proc->page_directory)
+            vmm_destroy_address_space(proc->page_directory);
 
         klog("[proc] reaped pid %u (slot %d)\n", proc->pid, i);
 
@@ -362,6 +416,9 @@ registers_t *process_reschedule_from_trap(registers_t *frame)
     next->state = PROCESS_RUNNING;
 
     process_set_current(next);
+
+    /* Kernel threads run on the kernel directory (page_directory == 0). */
+    vmm_switch(next->page_directory);
 
     tss_set_kernel_stack(
         (uint32_t)(next->kernel_stack +

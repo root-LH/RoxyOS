@@ -24,6 +24,7 @@ static void cmd_diskwrite(int argc, char **argv);
 static void cmd_mkfs(int argc, char **argv);
 static void cmd_run(int argc, char **argv);
 static void cmd_ps(int argc, char **argv);
+static void cmd_free(int argc, char **argv);
 
 typedef struct
 {
@@ -46,7 +47,8 @@ static command_t commands[] =
     { "diskwrite", cmd_diskwrite },
     { "mkfs", cmd_mkfs },
     { "run", cmd_run },
-    { "ps", cmd_ps }
+    { "ps", cmd_ps },
+    { "free", cmd_free }
 };
 
 static const int command_count = sizeof(commands) / sizeof(commands[0]);
@@ -197,6 +199,7 @@ static void cmd_help(int argc, char **argv)
     printk("  rm    - Remove a file\n");
     printk("  run   - Execute program\n");
     printk("  ps    - List processes\n");
+    printk("  free  - Show physical memory usage\n");
 }
 
 static void cmd_clear(int argc, char **argv)
@@ -401,8 +404,19 @@ static void cmd_run(int argc, char **argv)
     }
     else
     {
-        if (elf_exec(argv[1]) != 0)
-            printk("Failed to execute");
+        process_t *proc = elf_spawn(argv[1]);
+
+        if (!proc)
+        {
+            kprintf("run: cannot execute %s\n", argv[1]);
+            return;
+        }
+
+        /* The shell sleeps until the program exits. */
+        int code = process_wait(proc);
+
+        if (code != 0)
+            kprintf("[%s exited with code %d]\n", argv[1], code);
     }
 }
 
@@ -477,4 +491,16 @@ static void cmd_ps(int argc, char **argv)
     }
 
     kprintf("%d/%d slots in use\n", used, MAX_PROCESS);
+}
+
+static void cmd_free(int argc, char **argv)
+{
+    (void)argc;
+    (void)argv;
+
+    uint32_t total = pmm_total_frame_count();
+    uint32_t free = pmm_free_frame_count();
+
+    kprintf("frames: %u total, %u used, %u free (%u KB free)\n",
+            total, total - free, free, free * 4);
 }

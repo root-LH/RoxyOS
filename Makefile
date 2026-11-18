@@ -20,10 +20,38 @@ LDFLAGS = -m elf_i386 \
 
 BUILD = build
 
+# ---- User programs (installed into SimpleFS inside os.img) ----
+USER_BUILD  = $(BUILD)/user
+USER_PROGS  = hello count crash
+USER_ELFS   = $(addprefix $(USER_BUILD)/,$(addsuffix .elf,$(USER_PROGS)))
+USER_CFLAGS = $(CFLAGS) -O2 -Wall -Wextra -Iuser
+USER_LDFLAGS = -m elf_i386 -T user/linker.ld -s
+
 all: $(BUILD)/kernel.bin $(BUILD)/os.img
 
 $(BUILD):
 	mkdir -p $(BUILD)
+
+$(USER_BUILD):
+	mkdir -p $(USER_BUILD)
+
+$(USER_BUILD)/crt0.o: user/crt0.asm | $(USER_BUILD)
+	$(ASM) -f elf32 $< -o $@
+
+$(USER_BUILD)/syscall.o: kernel/lib/user/syscall.asm | $(USER_BUILD)
+	$(ASM) -f elf32 $< -o $@
+
+$(USER_BUILD)/%.o: user/%.c user/ulib.h | $(USER_BUILD)
+	$(CC) $(USER_CFLAGS) -c $< -o $@
+
+# crt0.o must come first so _start leads .text
+$(USER_BUILD)/%.elf: $(USER_BUILD)/crt0.o $(USER_BUILD)/%.o $(USER_BUILD)/ulib.o \
+                     $(USER_BUILD)/syscall.o user/linker.ld
+	$(LD) $(USER_LDFLAGS) -o $@ $(filter %.o,$^)
+
+.SECONDARY: $(USER_ELFS)
+
+user: $(USER_ELFS)
 
 $(BUILD)/stage1.bin: boot/stage1.asm $(BUILD)/kernel.bin | $(BUILD)
 	@SIZE=$$(stat -c%s $(BUILD)/kernel.bin); \
@@ -65,9 +93,6 @@ $(BUILD)/isr128.o: kernel/arch/x86/isr128.asm | $(BUILD)
 	$(ASM) -f elf32 $< -o $@
 
 $(BUILD)/tssasm.o: kernel/arch/x86/tss.asm | $(BUILD)
-	$(ASM) -f elf32 $< -o $@
-
-$(BUILD)/usermode.o: kernel/arch/x86/usermode.asm | $(BUILD)
 	$(ASM) -f elf32 $< -o $@
 
 $(BUILD)/process_switch.o: kernel/arch/x86/process_switch.asm | $(BUILD)
@@ -185,7 +210,6 @@ $(BUILD)/kernel.elf: \
 	$(BUILD)/tss.o \
 	$(BUILD)/gdt.o \
 	$(BUILD)/tssasm.o \
-	$(BUILD)/usermode.o \
 	$(BUILD)/syscall_user.o \
 	$(BUILD)/fd.o \
 	$(BUILD)/process.o \
@@ -206,13 +230,17 @@ $(BUILD)/stage1.inc: $(BUILD)/kernel.bin | $(BUILD)
 $(BUILD)/kernel.bin: $(BUILD)/kernel.elf | $(BUILD)
 	$(OBJCOPY) -O binary $< $@
 
-$(BUILD)/os.img: $(BUILD)/stage1.bin $(BUILD)/stage2.bin $(BUILD)/kernel.bin
+$(BUILD)/os.img: $(BUILD)/stage1.bin $(BUILD)/stage2.bin $(BUILD)/kernel.bin \
+                 $(USER_ELFS) tools/fsadd.py
 	@if [ ! -f $@ ]; then \
 		dd if=/dev/zero of=$@ bs=512 count=4096; \
 	fi
 	dd if=$(BUILD)/stage1.bin of=$@ conv=notrunc
 	dd if=$(BUILD)/stage2.bin of=$@ bs=512 seek=1 conv=notrunc
 	dd if=$(BUILD)/kernel.bin of=$@ bs=512 seek=2 conv=notrunc
+	@for p in $(USER_PROGS); do \
+		python3 tools/fsadd.py $@ $$p $(USER_BUILD)/$$p.elf || exit 1; \
+	done
 
 run: all
 	$(QEMU) \

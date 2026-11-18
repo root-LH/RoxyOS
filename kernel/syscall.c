@@ -7,6 +7,36 @@
 #include "include/process.h"
 #include "include/pit.h"
 #include "include/scheduler.h"
+#include "include/paging.h"
+
+#define SYSCALL_ERR ((uint32_t)-1)
+#define MAX_WRITE_LEN 4096
+#define MAX_PATH_LEN  32    /* fd_table filename size, including NUL */
+
+/*
+ * User processes may pass any pointer: check it against their page tables
+ * before the kernel touches it. Kernel threads are trusted.
+ */
+static int is_user(process_t *proc)
+{
+    return proc && proc->type == PROCESS_USER;
+}
+
+static int user_string_ok(process_t *proc, const char *s, uint32_t max)
+{
+    if (!is_user(proc))
+        return 1;
+
+    return vmm_user_strlen(proc->page_directory, s, max) >= 0;
+}
+
+static int user_buffer_ok(process_t *proc, void *buf, uint32_t len, int write)
+{
+    if (!is_user(proc))
+        return 1;
+
+    return vmm_user_range_ok(proc->page_directory, (uint32_t)buf, len, write);
+}
 
 void syscall_handler(registers_t *r)
 {
@@ -18,7 +48,14 @@ void syscall_handler(registers_t *r)
     switch (r->eax)
     {
         case SYS_WRITE:
+            if (!user_string_ok(proc, (const char *)r->ebx, MAX_WRITE_LEN))
+            {
+                r->eax = SYSCALL_ERR;
+                break;
+            }
+
             printk((const char *)r->ebx);
+            r->eax = 0;
             break;
 
         case SYS_GETCHAR:
@@ -29,7 +66,7 @@ void syscall_handler(registers_t *r)
         {
             const char *path = (const char *)r->ebx;
 
-            if (!vfs_exists(path))
+            if (!user_string_ok(proc, path, MAX_PATH_LEN) || !vfs_exists(path))
             {
                 r->eax = (uint32_t)-1;
                 break;
@@ -48,7 +85,7 @@ void syscall_handler(registers_t *r)
 
             uint32_t size = r->edx;
 
-            if (!fd_valid(fd))
+            if (!fd_valid(fd) || !user_buffer_ok(proc, buffer, size, 1))
             {
                 r->eax = (uint32_t)-1;
                 break;

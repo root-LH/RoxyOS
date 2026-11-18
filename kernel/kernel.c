@@ -13,7 +13,6 @@
 #include "include/ata.h"
 #include "include/gdt.h"
 #include "include/tss.h"
-#include "include/usermode.h"
 #include "include/syscall.h"
 #include "include/fd.h"
 #include "include/process.h"
@@ -22,57 +21,7 @@
 #include "include/paging.h"
 #include "include/serial.h"
 
-__attribute__((aligned(16)))
-static uint8_t user_stack[4096];
 extern uint8_t stack_top;
-
-void task1(void)
-{
-    while (1)
-    {
-        sys_write("A");
-        process_sleep(300);
-    }
-}
-
-void task2(void)
-{
-    while (1)
-    {
-        sys_write("B");
-        process_sleep(200);
-    }
-}
-
-void user_task1(void)
-{
-    while (1)
-    {
-        sys_write("B");
-        sys_sleep(20);
-    }
-}
-
-void user_task2(void)
-{
-    int cnt = 0;
-    while (1)
-    {
-        sys_write("A");
-        if (cnt++ == 1000)
-            sys_exit(0);
-    }
-}
-
-void user_mode_entry(void)
-{
-    while (1)
-    {
-        sys_write("B");
-        for (volatile uint32_t i = 0; i < 1000000; i++)
-            ;
-    }
-}
 
 void kernel_main(void)
 {

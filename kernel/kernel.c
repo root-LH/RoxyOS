@@ -20,6 +20,7 @@
 #include "include/scheduler.h"
 #include "include/idle.h"
 #include "include/paging.h"
+#include "include/serial.h"
 
 __attribute__((aligned(16)))
 static uint8_t user_stack[4096];
@@ -77,6 +78,10 @@ void kernel_main(void)
 {
     vga_clear();
 
+    /* Serial log (COM1) first, so everything after this is captured */
+    if (serial_init() == 0)
+        klog("\n[boot] RoxyOS serial log on COM1\n");
+
     /* CPU */
     idt_init();
     irq_install();
@@ -103,6 +108,8 @@ void kernel_main(void)
     tss_flush();
 
     scheduler_init();
+
+    klog("[boot] init done, starting scheduler\n");
 
     process_t *idle = process_create_kernel(idle_task);
 

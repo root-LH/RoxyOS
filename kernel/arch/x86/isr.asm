@@ -87,12 +87,18 @@ isr_common_stub:
     mov gs, ax
 
     push esp
-    call isr_handler
+    call isr_handler        ; returns the trap frame to resume
     add esp, 4
 
-section .text
+    mov esp, eax            ; may be another process (faulting user proc killed)
 
-.hang:
-    cli
-    hlt
-    jmp .hang
+    pop gs
+    pop fs
+    pop es
+    pop ds
+
+    popa
+
+    add esp, 8              ; int_no, err_code
+
+    iretd

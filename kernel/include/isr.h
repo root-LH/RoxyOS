@@ -21,6 +21,6 @@ typedef struct registers
     uint32_t ss;
 } registers_t;
 
-void isr_handler(registers_t *r);
+registers_t *isr_handler(registers_t *r);
 
 #endif

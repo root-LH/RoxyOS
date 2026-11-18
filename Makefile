@@ -43,6 +43,9 @@ $(BUILD)/vga.o: kernel/drivers/vga.c | $(BUILD)
 $(BUILD)/console.o: kernel/drivers/console.c | $(BUILD)
 	$(CC) $(CFLAGS) -c $< -o $@
 
+$(BUILD)/serial.o: kernel/drivers/serial.c | $(BUILD)
+	$(CC) $(CFLAGS) -c $< -o $@
+
 $(BUILD)/idt.o: kernel/arch/x86/idt.c | $(BUILD)
 	$(CC) $(CFLAGS) -c $< -o $@
 
@@ -164,6 +167,7 @@ $(BUILD)/kernel.elf: \
 	$(BUILD)/memory.o \
 	$(BUILD)/printk.o \
 	$(BUILD)/console.o \
+	$(BUILD)/serial.o \
 	$(BUILD)/panic.o \
 	$(BUILD)/pic.o \
 	$(BUILD)/io.o \
@@ -214,7 +218,9 @@ run: all
 	$(QEMU) \
 	-drive format=raw,file=$(BUILD)/os.img \
 	-no-reboot \
-	-d int,cpu_reset
+	-serial stdio \
+	-d int,cpu_reset \
+	-D $(BUILD)/qemu.log
 
 clean:
 	rm -rf $(BUILD)

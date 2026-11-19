@@ -32,12 +32,14 @@ void kernel_main(void)
         klog("\n[boot] RoxyOS serial log on COM1\n");
 
     /* CPU */
+    gdt_init();
     idt_init();
     irq_install();
 
     /* Memory Manager */
-    pmm_init(127);
+    pmm_init();
     paging_init();
+    heap_init();
 
     /* Interrupt Controller */
     pic_remap();

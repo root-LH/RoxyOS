@@ -20,7 +20,8 @@
  * User address space layout (per process):
  *   [USER_SPACE_START, USER_STACK_BOTTOM)  ELF segments
  *   [USER_STACK_BOTTOM, USER_SPACE_END)    user stack
- * 0~4MB stays a kernel-only identity mapping for now (heap, E820, GDT).
+ * 0~4MB is left unmapped so NULL pointer accesses fault.
+ * Kernel half: 0xC0000000~ physical map, KERNEL_HEAP_START (memory.h) heap.
  */
 #define USER_SPACE_START   0x00400000
 #define USER_SPACE_END     KERNEL_VIRTUAL_BASE
@@ -30,8 +31,15 @@
 
 void paging_init(void);
 
-/* Maps a page in the kernel page directory (shared by every process). */
+/*
+ * Kernel-half helpers (shared by every process). map_page panics on failure.
+ * unmap_page returns the frame that was mapped (0 if none); it does not free it.
+ */
 void map_page(uint32_t virt_addr, uint32_t phys_addr, uint32_t flags);
+uint32_t unmap_page(uint32_t virt_addr);
+
+/* Translates virt in the active directory. Returns 0 and sets *phys, or -1. */
+int get_physaddr(uint32_t virt_addr, uint32_t *phys);
 
 /* Page directories are referenced by their kernel virtual address. */
 uint32_t *vmm_kernel_directory(void);
@@ -45,6 +53,15 @@ void vmm_destroy_address_space(uint32_t *pd);
 
 /* Maps virt -> phys in pd. Returns 0 on success, -1 if out of memory. */
 int vmm_map(uint32_t *pd, uint32_t virt, uint32_t phys, uint32_t flags);
+
+/*
+ * Removes the mapping for virt and returns the frame it pointed to (0 if it
+ * was not mapped). The frame is not freed. An empty user page table is freed.
+ */
+uint32_t vmm_unmap(uint32_t *pd, uint32_t virt);
+
+/* Translates virt in pd. Returns 0 and sets *phys (with page offset), or -1. */
+int vmm_get_physaddr(uint32_t *pd, uint32_t virt, uint32_t *phys);
 
 /* Returns the PTE for virt (0 if no page table / not present). */
 uint32_t vmm_get_pte(uint32_t *pd, uint32_t virt);

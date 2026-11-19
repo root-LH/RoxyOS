@@ -506,4 +506,10 @@ static void cmd_free(int argc, char **argv)
 
     kprintf("frames: %u total, %u used, %u free (%u KB free)\n",
             total, total - free, free, free * 4);
+
+    heap_stats_t heap;
+    heap_get_stats(&heap);
+
+    kprintf("heap:   %u KB mapped, %u B used, %u B free, %u blocks\n",
+            heap.mapped / 1024, heap.used, heap.free, heap.blocks);
 }

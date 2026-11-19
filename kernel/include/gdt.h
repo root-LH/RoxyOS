@@ -19,6 +19,8 @@ typedef struct
     uint8_t  base_high;
 } __attribute__((packed)) gdt_entry_t;
 
+/* Loads the kernel's own GDT (replaces the Stage2 one in low memory). */
+void gdt_init(void);
 void gdt_get_descriptor(gdtr_t *gdtr);
 void gdt_install_tss(void);
 

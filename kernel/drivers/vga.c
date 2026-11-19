@@ -1,9 +1,10 @@
 #include "../include/vga.h"
 #include "../include/io.h"
 #include "../include/console.h"
+#include "../include/paging.h"
 
 static volatile uint16_t* const VGA_MEMORY =
-    (volatile uint16_t*)0xB8000;
+    (volatile uint16_t*)P2V(0xB8000);
 
 static uint16_t cursor_x = 0;
 static uint16_t cursor_y = 0;

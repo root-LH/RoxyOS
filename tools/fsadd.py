@@ -3,19 +3,19 @@
 
 Usage: fsadd.py <os.img> <name-in-fs> <host-file>
 
-Mirrors kernel/fs/simplefs.c: superblock at sector 128, a 16-sector file
-table at 129 (8 x 64-byte entries per sector), contiguous file data from
-sector 145 (1024 sectors max). A file with the same name is replaced.
+Mirrors kernel/fs/simplefs.c: superblock at sector 2048, a 16-sector file
+table at 2049 (8 x 64-byte entries per sector), contiguous file data from
+sector 2065 (1024 sectors max). A file with the same name is replaced.
 """
 
 import struct
 import sys
 
 SECTOR = 512
-START_SECTOR = 128
-TABLE_SECTOR = 129
+START_SECTOR = 2048                 # keep in sync with kernel/include/simplefs.h
+TABLE_SECTOR = START_SECTOR + 1
 TABLE_SECTORS = 16
-DATA_SECTOR = 145
+DATA_SECTOR = TABLE_SECTOR + TABLE_SECTORS
 DATA_SECTORS = 1024
 MAGIC = 0x53465331
 MAX_NAME = 32

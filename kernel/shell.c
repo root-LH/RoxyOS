@@ -19,6 +19,9 @@ static void cmd_ls(int argc, char **argv);
 static void cmd_cat(int argc, char **argv);
 static void cmd_write(int argc, char **argv);
 static void cmd_rm(int argc, char **argv);
+/* 커널(2~1025)과 SimpleFS(2048~) 사이의 빈 섹터 */
+#define DISK_SCRATCH_SECTOR 1536
+
 static void cmd_diskread(int argc, char **argv);
 static void cmd_diskwrite(int argc, char **argv);
 static void cmd_mkfs(int argc, char **argv);
@@ -346,7 +349,7 @@ static void cmd_diskread(int argc, char **argv)
 
     uint8_t sector[512];
 
-    if (ata_read_sector(100, sector) == 0)
+    if (ata_read_sector(DISK_SCRATCH_SECTOR, sector) == 0)
     {
         for (int i = 0; i < 32; i++)
         {
@@ -376,7 +379,7 @@ static void cmd_diskwrite(int argc, char **argv)
     for (int i = 0; msg[i] != '\0'; i++)
         sector[i] = msg[i];
 
-    if (ata_write_sector(100, sector) == 0)
+    if (ata_write_sector(DISK_SCRATCH_SECTOR, sector) == 0)
     {
         printk("Write Success\n");
     }

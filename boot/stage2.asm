@@ -78,3 +78,6 @@ protected_mode:
     jmp .hang
 
 %include "boot/gdt.inc"
+
+; Stage1은 Stage2를 1섹터만 읽음. 넘치면 여기서 빌드 에러
+times 512-($-$$) db 0

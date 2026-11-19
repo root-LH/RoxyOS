@@ -27,3 +27,6 @@ SECTIONS
 
     _kernel_end = .;
 }
+
+/* Stage1은 물리 0x10000부터 로드. BSS까지 EBDA(0x9F000~) 아래에 있어야 함 */
+ASSERT(_kernel_end - 0xC0000000 <= 0x9F000, "kernel image (incl. BSS) overlaps EBDA")

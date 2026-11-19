@@ -3,9 +3,10 @@
 
 #include <stdint.h>
 
-#define SIMPLEFS_START_SECTOR   128
-#define SIMPLEFS_TABLE_SECTOR   129
-#define SIMPLEFS_DATA_SECTOR    145
+/* 섹터 2~1025는 커널 영역 (boot/stage1.asm). tools/fsadd.py와 값을 맞출 것 */
+#define SIMPLEFS_START_SECTOR   2048
+#define SIMPLEFS_TABLE_SECTOR   (SIMPLEFS_START_SECTOR + 1)
+#define SIMPLEFS_DATA_SECTOR    (SIMPLEFS_TABLE_SECTOR + 16)
 
 #define SIMPLEFS_MAGIC 0x53465331
 

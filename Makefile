@@ -56,7 +56,7 @@ user: $(USER_ELFS)
 $(BUILD)/stage1.bin: boot/stage1.asm $(BUILD)/kernel.bin | $(BUILD)
 	@SIZE=$$(stat -c%s $(BUILD)/kernel.bin); \
 	SECTORS=$$(((SIZE+511)/512)); \
-	echo "KERNEL_SECTORS equ $$SECTORS" > boot/stage1.inc
+	echo "%assign KERNEL_SECTORS $$SECTORS" > boot/stage1.inc
 	$(ASM) -f bin $< -o $@
 
 $(BUILD)/stage2.bin: boot/stage2.asm boot/gdt.inc | $(BUILD)
@@ -225,7 +225,7 @@ $(BUILD)/kernel.elf: \
 $(BUILD)/stage1.inc: $(BUILD)/kernel.bin | $(BUILD)
 	@SECTORS=$$(($(shell stat -c%s $(BUILD)/kernel.bin)+511)); \
 	SECTORS=$$((SECTORS/512)); \
-	echo "KERNEL_SECTORS equ $$SECTORS" > boot/stage1.inc
+	echo "%assign KERNEL_SECTORS $$SECTORS" > boot/stage1.inc
 
 $(BUILD)/kernel.bin: $(BUILD)/kernel.elf | $(BUILD)
 	$(OBJCOPY) -O binary $< $@

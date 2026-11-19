@@ -1,234 +1,112 @@
-QEMU = qemu-system-i386
+QEMU    = qemu-system-i386
+GDB     = gdb
 
 CC      = gcc
 LD      = ld
 ASM     = nasm
 OBJCOPY = objcopy
 
-CFLAGS = -m32 \
-          -ffreestanding \
-          -fno-pie \
-          -fno-stack-protector \
-          -fno-builtin \
-          -fno-asynchronous-unwind-tables \
-          -fno-unwind-tables \
-          -fno-exceptions \
-          -nostdlib
-
-LDFLAGS = -m elf_i386 \
-           -T kernel/linker.ld
-
 BUILD = build
 
+# 커널/유저 공통. -MMD -MP: 헤더 의존성을 .d 파일로 생성
+BASE_CFLAGS = -m32 \
+              -ffreestanding \
+              -fno-pie \
+              -fno-stack-protector \
+              -fno-builtin \
+              -fno-asynchronous-unwind-tables \
+              -fno-unwind-tables \
+              -fno-exceptions \
+              -nostdlib \
+              -Wall -Wextra \
+              -MMD -MP
+
+# -g: kernel.elf에 디버그 정보 (kernel.bin은 objcopy로 빠지므로 크기 영향 없음)
+CFLAGS  = $(BASE_CFLAGS) -g
+LDFLAGS = -m elf_i386 -T kernel/linker.ld
+
+# ---- Kernel ----
+# kernel/ 아래 .c/.asm을 전부 빌드. entry.asm은 _start가 맨 앞에 와야 하므로 따로 처리.
+# 같은 이름의 .c/.asm(isr, idt, irq, tss)이 겹치지 않도록 오브젝트 이름에 확장자를 남김.
+KERNEL_C     := $(sort $(shell find kernel -name '*.c'))
+KERNEL_ASM   := $(sort $(shell find kernel -name '*.asm' ! -path kernel/entry.asm))
+KERNEL_ENTRY := $(BUILD)/kernel/entry.asm.o
+KERNEL_OBJS  := $(KERNEL_ENTRY) $(patsubst %,$(BUILD)/%.o,$(KERNEL_C) $(KERNEL_ASM))
+
 # ---- User programs (installed into SimpleFS inside os.img) ----
-USER_BUILD  = $(BUILD)/user
-USER_PROGS  = hello count crash
-USER_ELFS   = $(addprefix $(USER_BUILD)/,$(addsuffix .elf,$(USER_PROGS)))
-USER_CFLAGS = $(CFLAGS) -O2 -Wall -Wextra -Iuser
+# user/*.c 중 ulib.c를 제외한 각 파일이 프로그램 하나
+USER_BUILD   = $(BUILD)/user
+USER_PROGS  := $(filter-out ulib,$(basename $(notdir $(wildcard user/*.c))))
+USER_ELFS    = $(addprefix $(USER_BUILD)/,$(addsuffix .elf,$(USER_PROGS)))
+USER_LIBS    = $(USER_BUILD)/crt0.o $(USER_BUILD)/ulib.o $(USER_BUILD)/syscall.o
+USER_CFLAGS  = $(BASE_CFLAGS) -O2 -Iuser
 USER_LDFLAGS = -m elf_i386 -T user/linker.ld -s
 
-all: $(BUILD)/kernel.bin $(BUILD)/os.img
+# gdb 포트. 이 PC에서는 기본값 1234가 열리지 않아서 26000을 씀 (make debug GDB_PORT=1234 처럼 변경 가능)
+GDB_PORT ?= 26000
 
-$(BUILD):
-	mkdir -p $(BUILD)
+QEMU_FLAGS = -drive format=raw,file=$(BUILD)/os.img \
+             -no-reboot \
+             -serial stdio
 
-$(USER_BUILD):
-	mkdir -p $(USER_BUILD)
+.PHONY: all user run debug gdb clean
 
-$(USER_BUILD)/crt0.o: user/crt0.asm | $(USER_BUILD)
-	$(ASM) -f elf32 $< -o $@
+all: $(BUILD)/os.img
 
-$(USER_BUILD)/syscall.o: kernel/lib/user/syscall.asm | $(USER_BUILD)
-	$(ASM) -f elf32 $< -o $@
+# ---- Pattern rules ----
 
-$(USER_BUILD)/%.o: user/%.c user/ulib.h | $(USER_BUILD)
+$(BUILD)/%.c.o: %.c
+	@mkdir -p $(@D)
+	$(CC) $(CFLAGS) -c $< -o $@
+
+$(BUILD)/%.asm.o: %.asm
+	@mkdir -p $(@D)
+	$(ASM) -f elf32 -g -MD $(@:.o=.d) -MP $< -o $@
+
+$(USER_BUILD)/%.o: user/%.c
+	@mkdir -p $(@D)
 	$(CC) $(USER_CFLAGS) -c $< -o $@
+
+$(USER_BUILD)/crt0.o: user/crt0.asm
+	@mkdir -p $(@D)
+	$(ASM) -f elf32 $< -o $@
+
+$(USER_BUILD)/syscall.o: kernel/lib/user/syscall.asm
+	@mkdir -p $(@D)
+	$(ASM) -f elf32 $< -o $@
 
 # crt0.o must come first so _start leads .text
 $(USER_BUILD)/%.elf: $(USER_BUILD)/crt0.o $(USER_BUILD)/%.o $(USER_BUILD)/ulib.o \
                      $(USER_BUILD)/syscall.o user/linker.ld
 	$(LD) $(USER_LDFLAGS) -o $@ $(filter %.o,$^)
 
-.SECONDARY: $(USER_ELFS)
+.SECONDARY: $(USER_ELFS) $(USER_LIBS) $(USER_PROGS:%=$(USER_BUILD)/%.o)
 
 user: $(USER_ELFS)
 
-$(BUILD)/stage1.bin: boot/stage1.asm $(BUILD)/kernel.bin | $(BUILD)
-	@SIZE=$$(stat -c%s $(BUILD)/kernel.bin); \
-	SECTORS=$$(((SIZE+511)/512)); \
-	echo "%assign KERNEL_SECTORS $$SECTORS" > boot/stage1.inc
-	$(ASM) -f bin $< -o $@
+# ---- Kernel image ----
 
-$(BUILD)/stage2.bin: boot/stage2.asm boot/gdt.inc | $(BUILD)
-	$(ASM) -f bin $< -o $@
+$(BUILD)/kernel.elf: $(KERNEL_OBJS) kernel/linker.ld
+	$(LD) $(LDFLAGS) -o $@ $(KERNEL_OBJS)
 
-$(BUILD)/entry.o: kernel/entry.asm | $(BUILD)
-	$(ASM) -f elf32 $< -o $@
-
-$(BUILD)/vga.o: kernel/drivers/vga.c | $(BUILD)
-	$(CC) $(CFLAGS) -c $< -o $@
-
-$(BUILD)/console.o: kernel/drivers/console.c | $(BUILD)
-	$(CC) $(CFLAGS) -c $< -o $@
-
-$(BUILD)/serial.o: kernel/drivers/serial.c | $(BUILD)
-	$(CC) $(CFLAGS) -c $< -o $@
-
-$(BUILD)/idt.o: kernel/arch/x86/idt.c | $(BUILD)
-	$(CC) $(CFLAGS) -c $< -o $@
-
-$(BUILD)/idtasm.o: kernel/arch/x86/idt.asm | $(BUILD)
-	$(ASM) -f elf32 $< -o $@
-
-$(BUILD)/io.o: kernel/arch/x86/io.asm | $(BUILD)
-	$(ASM) -f elf32 $< -o $@
-
-$(BUILD)/irqasm.o: kernel/arch/x86/irq.asm | $(BUILD)
-	$(ASM) -f elf32 $< -o $@
-
-$(BUILD)/isr.o: kernel/arch/x86/isr.asm | $(BUILD)
-	$(ASM) -f elf32 $< -o $@
-
-$(BUILD)/isr128.o: kernel/arch/x86/isr128.asm | $(BUILD)
-	$(ASM) -f elf32 $< -o $@
-
-$(BUILD)/tssasm.o: kernel/arch/x86/tss.asm | $(BUILD)
-	$(ASM) -f elf32 $< -o $@
-
-$(BUILD)/process_switch.o: kernel/arch/x86/process_switch.asm | $(BUILD)
-	$(ASM) -f elf32 $< -o $@
-
-$(BUILD)/process_enter_user.o: kernel/arch/x86/process_enter_user.asm | $(BUILD)
-	$(ASM) -f elf32 $< -o $@
-
-$(BUILD)/paging_asm.o: kernel/arch/x86/paging_asm.asm | $(BUILD)
-	$(ASM) -f elf32 $< -o $@
-
-$(BUILD)/isrc.o: kernel/arch/x86/isr.c | $(BUILD)
-	$(CC) $(CFLAGS) -c $< -o $@
-
-$(BUILD)/pic.o: kernel/arch/x86/pic.c | $(BUILD)
-	$(CC) $(CFLAGS) -c $< -o $@
-
-$(BUILD)/irq.o: kernel/arch/x86/irq.c | $(BUILD)
-	$(CC) $(CFLAGS) -c $< -o $@
-
-$(BUILD)/pit.o: kernel/arch/x86/pit.c | $(BUILD)
-	$(CC) $(CFLAGS) -c $< -o $@
-
-$(BUILD)/ata.o: kernel/arch/x86/ata.c | $(BUILD)
-	$(CC) $(CFLAGS) -c $< -o $@
-
-$(BUILD)/tss.o: kernel/arch/x86/tss.c | $(BUILD)
-	$(CC) $(CFLAGS) -c $< -o $@
-
-$(BUILD)/gdt.o: kernel/arch/x86/gdt.c | $(BUILD)
-	$(CC) $(CFLAGS) -c $< -o $@
-
-$(BUILD)/simplefs.o: kernel/fs/simplefs.c | $(BUILD)
-	$(CC) $(CFLAGS) -c $< -o $@
-
-$(BUILD)/syscall_user.o: kernel/lib/user/syscall.asm
-	$(ASM) -f elf32 $< -o $@
-
-$(BUILD)/string.o: kernel/libk/string.c | $(BUILD)
-	$(CC) $(CFLAGS) -c $< -o $@
-
-$(BUILD)/memory.o: kernel/libk/memory.c | $(BUILD)
-	$(CC) $(CFLAGS) -c $< -o $@
-
-$(BUILD)/printk.o: kernel/libk/printk.c | $(BUILD)
-	$(CC) $(CFLAGS) -c $< -o $@
-
-$(BUILD)/panic.o: kernel/libk/panic.c | $(BUILD)
-	$(CC) $(CFLAGS) -c $< -o $@
-
-$(BUILD)/timer.o: kernel/timer.c | $(BUILD)
-	$(CC) $(CFLAGS) -c $< -o $@
-
-$(BUILD)/keyboard.o: kernel/keyboard.c | $(BUILD)
-	$(CC) $(CFLAGS) -c $< -o $@
-
-$(BUILD)/shell.o: kernel/shell.c | $(BUILD)
-	$(CC) $(CFLAGS) -c $< -o $@
-
-$(BUILD)/vfs.o: kernel/vfs.c | $(BUILD)
-	$(CC) $(CFLAGS) -c $< -o $@
-
-$(BUILD)/elf.o: kernel/elf_loader.c | $(BUILD)
-	$(CC) $(CFLAGS) -c $< -o $@
-
-$(BUILD)/syscall.o: kernel/syscall.c | $(BUILD)
-	$(CC) $(CFLAGS) -c $< -o $@
-
-$(BUILD)/fd.o: kernel/fd.c | $(BUILD)
-	$(CC) $(CFLAGS) -c $< -o $@
-
-$(BUILD)/process.o: kernel/process.c | $(BUILD)
-	$(CC) $(CFLAGS) -c $< -o $@
-
-$(BUILD)/scheduler.o: kernel/scheduler.c | $(BUILD)
-	$(CC) $(CFLAGS) -c $< -o $@
-
-$(BUILD)/idle.o: kernel/idle.c | $(BUILD)
-	$(CC) $(CFLAGS) -c $< -o $@
-
-$(BUILD)/paging.o: kernel/paging.c | $(BUILD)
-	$(CC) $(CFLAGS) -c $< -o $@
-
-$(BUILD)/kernel.o: kernel/kernel.c | $(BUILD)
-	$(CC) $(CFLAGS) -c $< -o $@
-
-$(BUILD)/kernel.elf: \
-    $(BUILD)/entry.o \
-    $(BUILD)/kernel.o \
-	$(BUILD)/vga.o \
-	$(BUILD)/idt.o \
-	$(BUILD)/idtasm.o \
-	$(BUILD)/isr.o \
-	$(BUILD)/isr128.o \
-	$(BUILD)/isrc.o \
-	$(BUILD)/string.o \
-	$(BUILD)/memory.o \
-	$(BUILD)/printk.o \
-	$(BUILD)/console.o \
-	$(BUILD)/serial.o \
-	$(BUILD)/panic.o \
-	$(BUILD)/pic.o \
-	$(BUILD)/io.o \
-	$(BUILD)/irqasm.o \
-	$(BUILD)/irq.o \
-	$(BUILD)/pit.o \
-	$(BUILD)/timer.o \
-	$(BUILD)/keyboard.o \
-	$(BUILD)/shell.o \
-	$(BUILD)/vfs.o \
-	$(BUILD)/ata.o \
-	$(BUILD)/simplefs.o \
-	$(BUILD)/elf.o \
-	$(BUILD)/syscall.o \
-	$(BUILD)/tss.o \
-	$(BUILD)/gdt.o \
-	$(BUILD)/tssasm.o \
-	$(BUILD)/syscall_user.o \
-	$(BUILD)/fd.o \
-	$(BUILD)/process.o \
-	$(BUILD)/process_switch.o \
-	$(BUILD)/scheduler.o \
-	$(BUILD)/idle.o \
-	$(BUILD)/process_enter_user.o \
-	$(BUILD)/paging_asm.o \
-	$(BUILD)/paging.o \
-	$(BUILD)/kernel.o | $(BUILD)
-	$(LD) $(LDFLAGS) -o $@ $^
-
-$(BUILD)/stage1.inc: $(BUILD)/kernel.bin | $(BUILD)
-	@SECTORS=$$(($(shell stat -c%s $(BUILD)/kernel.bin)+511)); \
-	SECTORS=$$((SECTORS/512)); \
-	echo "%assign KERNEL_SECTORS $$SECTORS" > boot/stage1.inc
-
-$(BUILD)/kernel.bin: $(BUILD)/kernel.elf | $(BUILD)
+$(BUILD)/kernel.bin: $(BUILD)/kernel.elf
 	$(OBJCOPY) -O binary $< $@
+
+# ---- Bootloader ----
+
+# Stage1이 읽을 커널 섹터 수 (빌드할 때마다 생성)
+$(BUILD)/stage1.inc: $(BUILD)/kernel.bin
+	@SIZE=$$(stat -c%s $<); \
+	echo "%assign KERNEL_SECTORS $$(((SIZE + 511) / 512))" > $@
+
+$(BUILD)/stage1.bin: boot/stage1.asm $(BUILD)/stage1.inc
+	$(ASM) -f bin -I$(BUILD)/ $< -o $@
+
+$(BUILD)/stage2.bin: boot/stage2.asm boot/gdt.inc
+	@mkdir -p $(@D)
+	$(ASM) -f bin $< -o $@
+
+# ---- Disk image ----
 
 $(BUILD)/os.img: $(BUILD)/stage1.bin $(BUILD)/stage2.bin $(BUILD)/kernel.bin \
                  $(USER_ELFS) tools/fsadd.py
@@ -242,13 +120,24 @@ $(BUILD)/os.img: $(BUILD)/stage1.bin $(BUILD)/stage2.bin $(BUILD)/kernel.bin \
 		python3 tools/fsadd.py $@ $$p $(USER_BUILD)/$$p.elf || exit 1; \
 	done
 
+# ---- Run / debug ----
+
 run: all
-	$(QEMU) \
-	-drive format=raw,file=$(BUILD)/os.img \
-	-no-reboot \
-	-serial stdio \
+	$(QEMU) $(QEMU_FLAGS) \
 	-d int,cpu_reset \
 	-D $(BUILD)/qemu.log
 
+# QEMU가 첫 명령에서 멈추고 :$(GDB_PORT)에서 gdb를 기다림. 다른 터미널에서 `make gdb`
+debug: all
+	$(QEMU) $(QEMU_FLAGS) -gdb tcp::$(GDB_PORT) -S
+
+gdb:
+	$(GDB) $(BUILD)/kernel.elf \
+	-ex "target remote :$(GDB_PORT)" \
+	-ex "break kernel_main" \
+	-ex "continue"
+
 clean:
 	rm -rf $(BUILD)
+
+-include $(shell find $(BUILD) -name '*.d' 2>/dev/null)

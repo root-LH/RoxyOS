@@ -6,33 +6,6 @@
 
 static simplefs_handle_t handle;
 
-static int simplefs_find_free_entry(
-    simplefs_entry_t *entry, uint32_t *sector_out, uint32_t *index_out
-)
-{
-    uint8_t sector[512];
-
-    for (uint32_t s = 0; s < 16; s++)
-    {
-        ata_read_sector(SIMPLEFS_TABLE_SECTOR + s, sector);
-
-        simplefs_entry_t *table = (simplefs_entry_t *)sector;
-
-        for (uint32_t i = 0; i < 8; i++)
-        {
-            if (table[i].used == 0)
-            {
-                *entry = table[i];
-                *sector_out = SIMPLEFS_TABLE_SECTOR + s;
-                *index_out = i;
-                return 0;
-            }
-        }
-    }
-
-    return -1;
-}
-
 static uint32_t simplefs_alloc_sector(uint32_t count)
 {
     uint8_t used[1024] = {0};

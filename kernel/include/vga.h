@@ -43,6 +43,5 @@ uint16_t vga_get_cursor_y(void);
 void vga_putentry_at(char c, uint16_t x, uint16_t y);
 
 void vga_scroll(void);
-static void vga_update_cursor(void);
 
 #endif

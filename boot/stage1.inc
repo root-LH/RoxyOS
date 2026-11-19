@@ -1,1 +1,0 @@
-%assign KERNEL_SECTORS 73

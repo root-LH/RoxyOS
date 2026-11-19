@@ -1,7 +1,7 @@
 [org 0x7C00]
 [bits 16]
 
-%include "boot/stage1.inc"
+%include "stage1.inc"           ; build/stage1.inc (Makefile이 생성)
 
 ; ------------------------
 ; 디스크 레이아웃 (LBA, 512B 섹터)

@@ -10,6 +10,8 @@ static uint16_t cursor_y = 0;
 
 static uint16_t current_color = 0x0F;
 
+static void vga_update_cursor(void);
+
 static uint16_t vga_entry(char c)
 {
     return ((uint16_t)current_color << 8) | c;

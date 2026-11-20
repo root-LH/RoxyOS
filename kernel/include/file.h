@@ -4,6 +4,7 @@
 #include "types.h"
 #include "uapi/abi.h"
 #include "vfs.h"
+#include "pipe.h"
 
 struct process;
 
@@ -14,6 +15,7 @@ typedef enum
 {
     FILE_NONE = 0,
     FILE_INODE,     /* a file, directory or device found through the VFS */
+    FILE_PIPE,      /* one end of a pipe: O_RDONLY reads, O_WRONLY writes */
 } file_type_t;
 
 /*
@@ -26,13 +28,17 @@ typedef struct file
     int refcount;       /* 0 = free slot */
     int flags;          /* O_* from open() */
     uint32_t offset;    /* bytes; for directories the readdir position */
-    inode_t *inode;
+    inode_t *inode;     /* FILE_INODE */
+    pipe_t *pipe;       /* FILE_PIPE */
 } file_t;
 
 void file_init(void);
 
 /* Opens path relative to the caller's working directory. 0 on failure. */
 file_t *file_open(const char *path, int flags);
+
+/* A new pipe: *read_end and *write_end. Returns 0, or -1 if out of memory/files. */
+int file_pipe(file_t **read_end, file_t **write_end);
 
 file_t *file_dup(file_t *file);
 
@@ -47,7 +53,7 @@ void file_close(file_t *file);
 int file_read(file_t *file, void *buf, uint32_t len);
 int file_write(file_t *file, const void *buf, uint32_t len);
 
-/* Returns the new offset, or -1 (devices cannot seek). */
+/* Returns the new offset, or -1 (devices and pipes cannot seek). */
 int file_seek(file_t *file, int32_t offset, int whence);
 
 /* Next directory entry: 1, or 0 at the end, -1 if file is not a directory. */

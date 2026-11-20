@@ -12,6 +12,15 @@ typedef int off_t;
 ssize_t read(int fd, void *buf, size_t len);
 ssize_t write(int fd, const void *buf, size_t len);
 int close(int fd);
+
+/* A copy of fd on the lowest free descriptor. */
+int dup(int fd);
+
+/* Makes newfd a copy of fd (closing newfd first). Returns newfd. */
+int dup2(int fd, int newfd);
+
+/* fds[0] reads what is written to fds[1]. */
+int pipe(int fds[2]);
 off_t lseek(int fd, off_t offset, int whence);
 
 /* Returns the child's pid in the parent and 0 in the child. */

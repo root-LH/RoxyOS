@@ -400,6 +400,73 @@ static int32_t sys_kill(registers_t *r)
     return process_signal_kill(r->ebx);
 }
 
+static int32_t sys_dup(registers_t *r)
+{
+    process_t *proc = process_current();
+    file_t *file = fd_get(proc, (int)r->ebx);
+
+    if (!file)
+        return -1;
+
+    int fd = fd_install(proc, file_dup(file));
+
+    if (fd < 0)
+        file_close(file);
+
+    return fd;
+}
+
+/* dup2(fd, newfd): newfd (closed first if open) becomes a copy of fd. */
+static int32_t sys_dup2(registers_t *r)
+{
+    process_t *proc = process_current();
+    file_t *file = fd_get(proc, (int)r->ebx);
+    int newfd = (int)r->ecx;
+
+    if (!file || newfd < 0 || newfd >= PROCESS_MAX_FD)
+        return -1;
+
+    if (newfd == (int)r->ebx)
+        return newfd;
+
+    fd_close(proc, newfd);
+    proc->files[newfd] = file_dup(file);
+
+    return newfd;
+}
+
+/* pipe(int fds[2]): fds[0] is the read end, fds[1] the write end. */
+static int32_t sys_pipe(registers_t *r)
+{
+    process_t *proc = process_current();
+    file_t *read_end, *write_end;
+
+    if (file_pipe(&read_end, &write_end) != 0)
+        return -1;
+
+    int fds[2] = { fd_install(proc, read_end), -1 };
+
+    if (fds[0] >= 0)
+        fds[1] = fd_install(proc, write_end);
+
+    if (fds[1] < 0 || to_caller(r->ebx, fds, sizeof(fds)) != 0)
+    {
+        if (fds[0] >= 0)
+            fd_close(proc, fds[0]);
+        else
+            file_close(read_end);
+
+        if (fds[1] >= 0)
+            fd_close(proc, fds[1]);
+        else
+            file_close(write_end);
+
+        return -1;
+    }
+
+    return 0;
+}
+
 static const syscall_fn syscall_table[SYSCALL_COUNT] =
 {
     [SYS_WRITE]   = sys_write,
@@ -426,6 +493,9 @@ static const syscall_fn syscall_table[SYSCALL_COUNT] =
     [SYS_CHDIR]   = sys_chdir,
     [SYS_GETCWD]  = sys_getcwd,
     [SYS_READDIR] = sys_readdir,
+    [SYS_DUP]     = sys_dup,
+    [SYS_DUP2]    = sys_dup2,
+    [SYS_PIPE]    = sys_pipe,
     [SYS_FSTAT]   = sys_fstat,
 };
 

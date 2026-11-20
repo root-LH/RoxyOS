@@ -50,3 +50,6 @@ SYSCALL chdir,     21, 1    ; path
 SYSCALL sys_getcwd, 22, 2   ; buf, size -> length
 SYSCALL getdirent, 23, 2    ; fd, &dirent -> 1 / 0 at the end
 SYSCALL fstat,     27, 2    ; fd, &st
+SYSCALL dup,       24, 1    ; fd
+SYSCALL dup2,      25, 2    ; fd, newfd
+SYSCALL pipe,      26, 1    ; int fds[2]

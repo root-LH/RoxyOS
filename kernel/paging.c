@@ -350,3 +350,92 @@ int vmm_user_strlen(uint32_t *pd, const char *str, uint32_t max)
 
     return -1;
 }
+
+/*
+ * Kernel address of user byte addr in pd, if its page is user-accessible
+ * (and writable when write != 0). Goes through the physical map, so pd does
+ * not have to be the active directory.
+ */
+static uint8_t *user_byte(uint32_t *pd, uint32_t addr, int write)
+{
+    if (addr < USER_SPACE_START || addr >= USER_SPACE_END)
+        return 0;
+
+    uint32_t need = PAGE_PRESENT | PAGE_USER | (write ? PAGE_WRITABLE : 0);
+    uint32_t pte = vmm_get_pte(pd, addr);
+
+    if ((pte & need) != need)
+        return 0;
+
+    return (uint8_t *)P2V(ENTRY_ADDR(pte)) + (addr & 0xFFFu);
+}
+
+int copy_from_user(uint32_t *pd, void *dst, uint32_t src, uint32_t len)
+{
+    uint8_t *out = dst;
+
+    while (len > 0)
+    {
+        uint8_t *from = user_byte(pd, src, 0);
+
+        if (!from)
+            return -1;
+
+        uint32_t chunk = PAGE_SIZE - (src & 0xFFFu);
+
+        if (chunk > len)
+            chunk = len;
+
+        memcpy(out, from, chunk);
+
+        out += chunk;
+        src += chunk;
+        len -= chunk;
+    }
+
+    return 0;
+}
+
+int copy_to_user(uint32_t *pd, uint32_t dst, const void *src, uint32_t len)
+{
+    const uint8_t *in = src;
+
+    while (len > 0)
+    {
+        uint8_t *to = user_byte(pd, dst, 1);
+
+        if (!to)
+            return -1;
+
+        uint32_t chunk = PAGE_SIZE - (dst & 0xFFFu);
+
+        if (chunk > len)
+            chunk = len;
+
+        memcpy(to, in, chunk);
+
+        in += chunk;
+        dst += chunk;
+        len -= chunk;
+    }
+
+    return 0;
+}
+
+int strncpy_from_user(uint32_t *pd, char *dst, uint32_t src, uint32_t size)
+{
+    for (uint32_t i = 0; i < size; i++)
+    {
+        uint8_t *from = user_byte(pd, src + i, 0);
+
+        if (!from)
+            return -1;
+
+        dst[i] = (char)*from;
+
+        if (dst[i] == '\0')
+            return (int)i;
+    }
+
+    return -1;
+}

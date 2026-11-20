@@ -12,7 +12,7 @@ uint32_t strlen(const char *s)
 
 void print(const char *s)
 {
-    sys_write(s);
+    write(1, s, strlen(s));
 }
 
 void print_int(int value)
@@ -32,5 +32,5 @@ void print_int(int value)
     if (value < 0)
         buf[--i] = '-';
 
-    sys_write(&buf[i]);
+    print(&buf[i]);
 }

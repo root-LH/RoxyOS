@@ -78,4 +78,18 @@ int vmm_user_range_ok(uint32_t *pd, uint32_t addr, uint32_t len, int write);
 /* Returns the length of a NUL-terminated user string (< max), or -1 if invalid. */
 int vmm_user_strlen(uint32_t *pd, const char *str, uint32_t max);
 
+/*
+ * Copy between the kernel and the user half of pd (which need not be the
+ * active directory). Every user page must be mapped user-accessible, and
+ * writable for copy_to_user. Return 0, or -1 if any page is not.
+ */
+int copy_from_user(uint32_t *pd, void *dst, uint32_t src, uint32_t len);
+int copy_to_user(uint32_t *pd, uint32_t dst, const void *src, uint32_t len);
+
+/*
+ * Copies a NUL-terminated user string into dst (size bytes). Returns its
+ * length, or -1 if a page is not accessible or no NUL fits in size.
+ */
+int strncpy_from_user(uint32_t *pd, char *dst, uint32_t src, uint32_t size);
+
 #endif

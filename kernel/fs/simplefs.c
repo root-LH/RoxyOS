@@ -8,7 +8,7 @@ static simplefs_handle_t handle;
 
 static uint32_t simplefs_alloc_sector(uint32_t count)
 {
-    uint8_t used[1024] = {0};
+    uint8_t used[SIMPLEFS_DATA_SECTORS] = {0};
 
     uint8_t sector[512];
 
@@ -305,4 +305,42 @@ int simplefs_read(const char *name, void *buffer, uint32_t buffer_size)
     }
 
     return handle->entry.size;
+}
+
+int simplefs_read_at(const char *name, uint32_t offset, void *buffer, uint32_t len)
+{
+    simplefs_handle_t *handle = simplefs_find(name);
+
+    if (handle == NULL)
+        return -1;
+
+    simplefs_entry_t entry = handle->entry;
+
+    if (offset >= entry.size)
+        return 0;
+
+    if (len > entry.size - offset)
+        len = entry.size - offset;
+
+    uint8_t sector[512];
+    uint32_t done = 0;
+
+    while (done < len)
+    {
+        uint32_t pos = offset + done;
+        uint32_t in_sector = pos % 512;
+        uint32_t chunk = 512 - in_sector;
+
+        if (chunk > len - done)
+            chunk = len - done;
+
+        if (ata_read_sector(entry.start_sector + pos / 512, sector) != 0)
+            return -1;
+
+        memcpy((uint8_t *)buffer + done, sector + in_sector, chunk);
+
+        done += chunk;
+    }
+
+    return (int)done;
 }

@@ -14,7 +14,7 @@
 #include "include/gdt.h"
 #include "include/tss.h"
 #include "include/syscall.h"
-#include "include/fd.h"
+#include "include/file.h"
 #include "include/process.h"
 #include "include/scheduler.h"
 #include "include/idle.h"
@@ -43,14 +43,14 @@ void kernel_main(void)
 
     /* Interrupt Controller */
     pic_remap();
-    pit_init(100);
+    pit_init(PIT_HZ);
 
     /* Drivers */
     keyboard_init();
     ata_init();
 
     /* Kernel Subsystem */
-    fd_init();
+    file_init();
 
     /* TSS */
     tss_init();

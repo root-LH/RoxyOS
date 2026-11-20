@@ -71,7 +71,7 @@ $(USER_BUILD)/crt0.o: user/crt0.asm
 	@mkdir -p $(@D)
 	$(ASM) -f elf32 $< -o $@
 
-$(USER_BUILD)/syscall.o: kernel/lib/user/syscall.asm
+$(USER_BUILD)/syscall.o: user/lib/syscall.asm
 	@mkdir -p $(@D)
 	$(ASM) -f elf32 $< -o $@
 

@@ -7,6 +7,9 @@
 
 #define MAX_PROCESS        16
 #define PROCESS_STACK_SIZE 8192
+#define PROCESS_MAX_FD     16
+
+struct file;
 
 typedef enum
 {
@@ -56,6 +59,9 @@ typedef struct process
 
     /* Set by a kill request; the process exits before returning to user mode. */
     int killed;
+
+    /* File descriptors (see file.h); closed when the process exits. */
+    struct file *files[PROCESS_MAX_FD];
 
 } process_t;
 

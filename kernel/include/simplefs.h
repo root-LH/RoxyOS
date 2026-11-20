@@ -46,4 +46,11 @@ int simplefs_delete(const char *name);
 int simplefs_write(const char *name, const void *data, uint32_t size);
 int simplefs_read(const char *name, void *buffer, uint32_t buffer_size);
 
+/* Reads up to len bytes from offset. Returns the count (0 at/after EOF) or -1. */
+int simplefs_read_at(const char *name, uint32_t offset, void *buffer, uint32_t len);
+
+/* Largest file the data area can hold. */
+#define SIMPLEFS_DATA_SECTORS 1024
+#define SIMPLEFS_MAX_FILE_SIZE (SIMPLEFS_DATA_SECTORS * 512)
+
 #endif

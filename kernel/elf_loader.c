@@ -7,6 +7,7 @@
 #include "include/process.h"
 #include "include/scheduler.h"
 #include "include/printk.h"
+#include "include/file.h"
 
 #ifndef PF_W
 #define PF_W 0x2
@@ -225,6 +226,15 @@ process_t *elf_spawn(const char *path)
 
     proc->parent = process_current();
     pd = 0;     /* owned by the process now */
+
+    if (fd_open_stdio(proc) != 0)
+    {
+        kprintf("elf: out of open files\n");
+        proc->parent = 0;   /* nobody will wait: reap it right away */
+        process_kill(proc, -1);
+        proc = 0;
+        goto out;
+    }
 
     klog("[elf] %s -> pid %u, entry %p\n", path, proc->pid, (void *)entry);
 

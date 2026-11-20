@@ -2,25 +2,9 @@
 #define SYSCALL_H
 
 #include "isr.h"
+#include "uapi/abi.h"   /* SYS_* numbers and the flags user programs pass */
 
-#define SYS_WRITE 0
-#define SYS_GETCHAR 1
-#define SYS_OPEN 2
-#define SYS_READ 3
-#define SYS_CLOSE 4
-#define SYS_EXIT 5
-#define SYS_SLEEP 6
-#define SYS_YIELD 15
-
+/* int 0x80 entry (isr128). The result is returned in r->eax. */
 void syscall_handler(registers_t *r);
-
-/* User Space Wrapper */
-void sys_write(const char *str);
-char sys_getchar(void);
-int sys_open(const char *path);
-int sys_read(int fd, void *buffer, uint32_t size);
-int sys_close(int fd);
-void sys_exit(int code);
-void sys_sleep(int ticks);
 
 #endif

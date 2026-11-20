@@ -5,6 +5,9 @@
 #include "types.h"
 
 void printk(const char *str);
+
+/* Writes len bytes (NULs included) to the console and COM1. */
+void printk_write(const char *buf, size_t len);
 void printk_hex(uint32_t value);
 void printk_dec(uint32_t value);
 

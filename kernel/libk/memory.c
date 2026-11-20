@@ -2,6 +2,7 @@
 #include "../include/paging.h"
 #include "../include/panic.h"
 #include "../include/printk.h"
+#include "../include/cpu.h"
 
 /* ------------------------------------------------------------------ */
 /* Physical Memory Manager                                             */
@@ -98,7 +99,7 @@ void pmm_init(void)
          e820_count, total_frames / 256, pmm_free_frame_count() * 4);
 }
 
-void* pmm_alloc_frame(void) {
+static void *pmm_alloc_frame_unlocked(void) {
     for (uint32_t f = 0; f < total_frames; f++) {
         if (!bitmap_test(f)) {
             bitmap_set(f);
@@ -108,11 +109,32 @@ void* pmm_alloc_frame(void) {
     return 0;
 }
 
-void pmm_free_frame(void* frame_addr) {
+static void pmm_free_frame_unlocked(void* frame_addr) {
     uint32_t frame = (uint32_t)frame_addr / PAGE_SIZE;
     if (frame < total_frames) {
         bitmap_clear(frame);
     }
+}
+
+/*
+ * The PMM and the heap are used from preemptible kernel threads, from
+ * system calls and from the IRQ path (process reaping), so every entry
+ * point runs with interrupts disabled.
+ */
+void *pmm_alloc_frame(void)
+{
+    uint32_t flags = irq_save();
+    void *frame = pmm_alloc_frame_unlocked();
+    irq_restore(flags);
+
+    return frame;
+}
+
+void pmm_free_frame(void *frame_addr)
+{
+    uint32_t flags = irq_save();
+    pmm_free_frame_unlocked(frame_addr);
+    irq_restore(flags);
 }
 
 uint32_t pmm_total_frame_count(void)
@@ -270,7 +292,7 @@ static void coalesce_blocks(void)
     }
 }
 
-void *kmalloc(size_t size)
+static void *kmalloc_unlocked(size_t size)
 {
     if (size == 0 || size > KERNEL_HEAP_MAX)
         return NULL;
@@ -304,7 +326,7 @@ void *kmalloc(size_t size)
     return (void *)(header + 1);
 }
 
-void kfree(void *ptr)
+static void kfree_unlocked(void *ptr)
 {
     if (ptr == NULL)
         return;
@@ -321,6 +343,22 @@ void kfree(void *ptr)
 
     header->free = 1;
     coalesce_blocks();
+}
+
+void *kmalloc(size_t size)
+{
+    uint32_t flags = irq_save();
+    void *ptr = kmalloc_unlocked(size);
+    irq_restore(flags);
+
+    return ptr;
+}
+
+void kfree(void *ptr)
+{
+    uint32_t flags = irq_save();
+    kfree_unlocked(ptr);
+    irq_restore(flags);
 }
 
 void heap_get_stats(heap_stats_t *stats)

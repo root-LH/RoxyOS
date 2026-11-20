@@ -7,6 +7,7 @@
 #include "include/panic.h"
 #include "include/paging.h"
 #include "include/cpu.h"
+#include "include/file.h"
 
 #include "include/printk.h"
 
@@ -185,6 +186,7 @@ void process_kill(process_t *proc, int code)
         return;
 
     wait_queue_cancel(proc);
+    fd_close_all(proc);
 
     proc->state = PROCESS_EXITED;
     proc->exit_code = code;

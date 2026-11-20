@@ -3,13 +3,12 @@
 
 typedef unsigned int uint32_t;
 
-/* System call wrappers (kernel/lib/user/syscall.asm) */
-int  sys_write(const char *str);
-char sys_getchar(void);
-int  sys_open(const char *path);
-int  sys_read(int fd, void *buffer, uint32_t size);
-int  sys_close(int fd);
-void sys_exit(int code) __attribute__((noreturn));
+/* System call wrappers (user/lib/syscall.asm) */
+int  write(int fd, const void *buf, uint32_t len);
+int  read(int fd, void *buf, uint32_t len);
+int  open(const char *path, int flags);
+int  close(int fd);
+void _exit(int code) __attribute__((noreturn));
 void sys_sleep(int ticks);
 
 /* Tiny helpers (user/ulib.c) */

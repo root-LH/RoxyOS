@@ -27,6 +27,12 @@ void printk(const char *str)
     out_str(OUT_CONSOLE | OUT_SERIAL, str);
 }
 
+void printk_write(const char *buf, size_t len)
+{
+    for (size_t i = 0; i < len; i++)
+        out_char(OUT_CONSOLE | OUT_SERIAL, buf[i]);
+}
+
 void printk_hex(uint32_t value)
 {
     kprintf("%08X", value);

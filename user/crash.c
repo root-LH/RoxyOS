@@ -6,15 +6,15 @@
  */
 int main(void)
 {
-    int r = sys_write((const char *)0xC0010000);   /* kernel address */
+    int r = write(1, (const char *)0xC0010000, 16);  /* kernel address */
 
-    print("sys_write(kernel ptr) = ");
+    print("write(kernel ptr) = ");
     print_int(r);
     print("\n");
 
-    r = sys_write((const char *)0x00100000);       /* below user space */
+    r = write(1, (const char *)0x00100000, 16);      /* below user space */
 
-    print("sys_write(low ptr)    = ");
+    print("write(low ptr)    = ");
     print_int(r);
     print("\n");
 

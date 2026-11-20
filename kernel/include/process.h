@@ -3,19 +3,19 @@
 
 #include <stdint.h>
 #include "isr.h"
+#include "wait.h"
 
 #define MAX_PROCESS        16
 #define PROCESS_STACK_SIZE 8192
-#define USER_STACK_SIZE 4096
 
 typedef enum
 {
     PROCESS_UNUSED = 0,
     PROCESS_READY,
     PROCESS_RUNNING,
-    PROCESS_BLOCKED,
+    PROCESS_BLOCKED,    /* sleeping until wakeup_tick */
     PROCESS_EXITED,     /* zombie: finished, slot not yet reaped */
-    PROCESS_WAITING
+    PROCESS_WAITING     /* sleeping on a wait queue */
 } process_state_t;
 
 typedef enum
@@ -24,23 +24,6 @@ typedef enum
     PROCESS_USER
 } process_type_t;
 
-typedef struct context
-{
-    uint32_t edi;
-    uint32_t esi;
-    uint32_t ebx;
-    uint32_t ebp;
-} context_t;
-
-typedef struct user_context
-{
-    uint32_t eip;
-    uint32_t cs;
-    uint32_t eflags;
-    uint32_t esp;
-    uint32_t ss;
-} user_context_t;
-
 typedef struct process
 {
     uint32_t pid;
@@ -48,16 +31,10 @@ typedef struct process
     process_state_t state;
     process_type_t type;
 
-    context_t *context;
+    /* Where the process resumes: the frame saved by its last trap. */
     registers_t *trapframe;
-    user_context_t *user_context;
-
-    void (*entry)(void);
 
     uint8_t *kernel_stack;
-    uint8_t *user_stack;
-
-    uint32_t user_stack_top;
 
     uint32_t wakeup_tick;
 
@@ -69,8 +46,16 @@ typedef struct process
     /* Creator that will collect the exit code; 0 = reaped automatically. */
     struct process *parent;
 
-    /* Child this process is blocked on in process_wait(). */
-    struct process *wait_child;
+    /* Wait queue state (see wait.h). */
+    wait_queue_t *waiting_on;
+    struct process *wait_next;
+    int wait_interruptible;
+
+    /* Woken when one of this process's children exits. */
+    wait_queue_t child_wq;
+
+    /* Set by a kill request; the process exits before returning to user mode. */
+    int killed;
 
 } process_t;
 
@@ -93,10 +78,14 @@ process_t *process_current(void);
 
 void process_set_current(process_t *proc);
 
-void process_switch(process_t *next);
+/*
+ * Switches away from the current process right now, through the syscall
+ * gate. Set the process state first: RUNNING/READY yields the CPU,
+ * BLOCKED/WAITING sleeps until something makes it READY again.
+ */
+void process_block(void);
 
-void process_switch_asm(context_t **old, context_t *new);
-
+/* Gives the CPU to the next ready process. */
 void process_yield(void);
 
 /* Terminates the calling process. Never returns. */
@@ -117,8 +106,6 @@ process_t *process_get_slot(int i);
 const char *process_state_name(process_state_t state);
 
 void process_sleep(uint32_t ticks);
-
-void process_enter_user(process_t *proc);
 
 registers_t *process_reschedule_from_trap(registers_t *frame);
 

@@ -5,6 +5,8 @@
 #include "include/string.h"
 #include "include/process.h"
 #include "include/scheduler.h"
+#include "include/cpu.h"
+#include "include/wait.h"
 
 #define KEYBOARD_DATA_PORT   0x60
 #define KEYBOARD_STATUS_PORT 0x64
@@ -86,7 +88,7 @@ static char keyboard_queue[KEYBOARD_QUEUE_SIZE];
 static volatile uint32_t keyboard_head = 0;
 static volatile uint32_t keyboard_tail = 0;
 
-static process_t *keyboard_waiter = 0;
+static wait_queue_t keyboard_wq = WAIT_QUEUE_INIT;
 
 static void keyboard_queue_push(char c)
 {
@@ -99,44 +101,34 @@ static void keyboard_queue_push(char c)
     keyboard_queue[keyboard_tail] = c;
     keyboard_tail = next;
 
-    if (keyboard_waiter && keyboard_waiter->state == PROCESS_WAITING)
+    wait_queue_wake_all(&keyboard_wq);
+}
+
+int keyboard_read(int interruptible)
+{
+    uint32_t flags = irq_save();
+
+    while (keyboard_head == keyboard_tail)
     {
-        keyboard_waiter->state = PROCESS_READY;
-        scheduler_request_resched();
+        if (wait_queue_sleep(&keyboard_wq, interruptible) < 0)
+        {
+            irq_restore(flags);
+            return -1;
+        }
     }
 
-    keyboard_waiter = 0;
+    char c = keyboard_queue[keyboard_head];
+
+    keyboard_head = (keyboard_head + 1) % KEYBOARD_QUEUE_SIZE;
+
+    irq_restore(flags);
+
+    return (unsigned char)c;
 }
 
 char keyboard_getchar(void)
 {
-    while (1)
-    {
-        asm volatile("cli");
-
-        if (keyboard_head != keyboard_tail)
-        {
-            char c = keyboard_queue[keyboard_head];
-
-            keyboard_head =
-                (keyboard_head + 1) % KEYBOARD_QUEUE_SIZE;
-
-            asm volatile("sti");
-
-            return c;
-        }
-
-        process_t *proc = process_current();
-
-        if (proc)
-        {
-            proc->state = PROCESS_WAITING;
-            keyboard_waiter = proc;
-            scheduler_request_resched();
-        }
-
-        asm volatile("sti; hlt");
-    }
+    return (char)keyboard_read(0);
 }
 
 void keyboard_init(void)

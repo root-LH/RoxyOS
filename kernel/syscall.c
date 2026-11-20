@@ -134,6 +134,11 @@ void syscall_handler(registers_t *r)
             break;
         }
 
+        case SYS_YIELD:
+            scheduler_request_resched();
+            r->eax = 0;
+            break;
+
         default:
             printk("Unknown syscall\n");
             break;

@@ -10,6 +10,7 @@
 #define SYS_CLOSE 4
 #define SYS_EXIT 5
 #define SYS_SLEEP 6
+#define SYS_YIELD 15
 
 void syscall_handler(registers_t *r);
 

@@ -3,6 +3,7 @@
 #include "../../include/io.h"
 #include "../../include/pit.h"
 #include "../../include/keyboard.h"
+#include "../../include/ata.h"
 #include "../../include/scheduler.h"
 #include "../../include/tss.h"
 
@@ -30,6 +31,10 @@ registers_t *irq_handler(registers_t *r)
     else if (r->int_no == 33)
     {
         keyboard_handler();
+    }
+    else if (r->int_no == 46)
+    {
+        ata_irq_handler();
     }
 
     if (scheduler_need_resched())

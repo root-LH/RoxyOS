@@ -6,18 +6,16 @@
 #include "include/syscall.h"
 #include "include/panic.h"
 #include "include/paging.h"
+#include "include/cpu.h"
 
 #include "include/printk.h"
 
-extern void process_enter_user_asm(user_context_t *context);
 extern void process_start_asm(registers_t *frame) __attribute__((noreturn));
 
 static uint8_t kernel_stacks[MAX_PROCESS][PROCESS_STACK_SIZE];
 
 static process_t process_table[MAX_PROCESS];
 static process_t *current_process = 0;
-
-static context_t *dummy_context = 0;
 
 process_t *process_current(void)
 {
@@ -85,19 +83,6 @@ process_t *process_create_kernel(void (*entry)(void))
         uint8_t *kstack_top =
             proc->kernel_stack + PROCESS_STACK_SIZE;
 
-        uint32_t *sp = (uint32_t *)kstack_top;
-
-        *--sp = (uint32_t)entry;
-
-        *--sp = 0;      // ebp
-        *--sp = 0;      // ebx
-        *--sp = 0;      // esi
-        *--sp = 0;      // edi
-
-        proc->context = (context_t *)sp;
-
-        kstack_top = (uint8_t *)sp;
-
         kstack_top -= sizeof(registers_t);
 
         proc->trapframe = (registers_t *)kstack_top;
@@ -148,7 +133,6 @@ process_t *process_create_user(uint32_t *page_directory,
         proc->type = PROCESS_USER;
 
         proc->page_directory = page_directory;
-        proc->user_stack_top = user_esp;
 
         proc->kernel_stack = kernel_stacks[i];
 
@@ -179,45 +163,17 @@ process_t *process_create_user(uint32_t *page_directory,
     return 0;
 }
 
-void process_switch(process_t *next)
+void process_block(void)
 {
-    process_t *prev = current_process;
+    scheduler_request_resched();
 
-    current_process = next;
-
-    if (prev && prev->state == PROCESS_RUNNING)
-        prev->state = PROCESS_READY;
-
-    next->state = PROCESS_RUNNING;
-
-    if (next->type == PROCESS_USER)
-    {
-        process_enter_user(next);
-        return;
-    }
-
-    process_switch_asm(
-        prev ? &prev->context : &dummy_context,
-        next->context);
+    /* isr128 sees the resched request and switches to the next process. */
+    asm volatile("int $0x80" : : "a"(SYS_YIELD) : "memory");
 }
 
 void process_yield(void)
 {
-    process_t *proc = process_current();
-
-    if (!proc)
-        return;
-
-    scheduler_clear_resched();
-
-    proc->state = PROCESS_READY;
-
-    process_t *next = scheduler_schedule();
-
-    if (!next)
-        return;
-
-    process_switch(next);
+    process_block();
 }
 
 void process_kill(process_t *proc, int code)
@@ -227,6 +183,8 @@ void process_kill(process_t *proc, int code)
 
     if (proc->state == PROCESS_UNUSED || proc->state == PROCESS_EXITED)
         return;
+
+    wait_queue_cancel(proc);
 
     proc->state = PROCESS_EXITED;
     proc->exit_code = code;
@@ -240,14 +198,8 @@ void process_kill(process_t *proc, int code)
             process_table[i].parent = 0;
     }
 
-    process_t *parent = proc->parent;
-
-    if (parent && parent->state == PROCESS_WAITING &&
-        parent->wait_child == proc)
-    {
-        parent->state = PROCESS_READY;
-        scheduler_request_resched();
-    }
+    if (proc->parent)
+        wait_queue_wake_all(&proc->parent->child_wq);
 
     if (proc == current_process)
         scheduler_request_resched();
@@ -260,38 +212,36 @@ int process_wait(process_t *child)
     if (!self || !child)
         return -1;
 
-    while (1)
-    {
-        asm volatile("cli");
+    uint32_t flags = irq_save();
 
+    while (child->state != PROCESS_EXITED)
+    {
         if (child->state == PROCESS_UNUSED || child->parent != self)
         {
-            asm volatile("sti");
+            irq_restore(flags);
             return -1;
         }
 
-        if (child->state == PROCESS_EXITED)
-        {
-            int code = child->exit_code;
-
-            /* Exit code collected: let process_reap() free the slot. */
-            child->parent = 0;
-            self->wait_child = 0;
-
-            asm volatile("sti");
-
-            process_reap();
-
-            return code;
-        }
-
-        self->wait_child = child;
-        self->state = PROCESS_WAITING;
-        scheduler_request_resched();
-
-        /* The next interrupt switches away; process_kill() wakes us. */
-        asm volatile("sti; hlt");
+        /* process_kill() wakes us when one of our children exits. */
+        wait_queue_sleep(&self->child_wq, 0);
     }
+
+    if (child->parent != self)
+    {
+        irq_restore(flags);
+        return -1;
+    }
+
+    int code = child->exit_code;
+
+    /* Exit code collected: let process_reap() free the slot. */
+    child->parent = 0;
+
+    irq_restore(flags);
+
+    process_reap();
+
+    return code;
 }
 
 void process_exit(int code)
@@ -310,9 +260,7 @@ void process_exit(int code)
 
 void process_reap(void)
 {
-    uint32_t flags;
-
-    asm volatile("pushf; pop %0; cli" : "=r"(flags) : : "memory");
+    uint32_t flags = irq_save();
 
     for (int i = 0; i < MAX_PROCESS; i++)
     {
@@ -344,8 +292,7 @@ void process_reap(void)
         proc->state = PROCESS_UNUSED;
     }
 
-    if (flags & 0x200)
-        asm volatile("sti");
+    irq_restore(flags);
 }
 
 void process_sleep(uint32_t ticks)
@@ -355,24 +302,8 @@ void process_sleep(uint32_t ticks)
     proc->wakeup_tick = pit_get_ticks() + ticks;
     proc->state = PROCESS_BLOCKED;
 
-    scheduler_request_resched();
-
-    asm volatile("int $32");
-}
-
-void process_enter_user(process_t *proc)
-{
-    if (!proc || !proc->user_context)
-        return;
-
-    current_process = proc;
-    proc->state = PROCESS_RUNNING;
-
-    tss_set_kernel_stack(
-        (uint32_t)(proc->kernel_stack + PROCESS_STACK_SIZE)
-    );
-
-    process_enter_user_asm(proc->user_context);
+    /* scheduler_wakeup() makes it READY again on the timer IRQ. */
+    process_block();
 }
 
 void process_start(process_t *first)

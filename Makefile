@@ -5,6 +5,7 @@ CC      = gcc
 LD      = ld
 ASM     = nasm
 OBJCOPY = objcopy
+AR      = ar
 
 BUILD = build
 
@@ -34,13 +35,19 @@ KERNEL_ENTRY := $(BUILD)/kernel/entry.asm.o
 KERNEL_OBJS  := $(KERNEL_ENTRY) $(patsubst %,$(BUILD)/%.o,$(KERNEL_C) $(KERNEL_ASM))
 
 # ---- User programs (installed into SimpleFS inside os.img) ----
-# user/*.c 중 ulib.c를 제외한 각 파일이 프로그램 하나
-USER_BUILD   = $(BUILD)/user
-USER_PROGS  := $(filter-out ulib,$(basename $(notdir $(wildcard user/*.c))))
-USER_ELFS    = $(addprefix $(USER_BUILD)/,$(addsuffix .elf,$(USER_PROGS)))
-USER_LIBS    = $(USER_BUILD)/crt0.o $(USER_BUILD)/ulib.o $(USER_BUILD)/syscall.o
-USER_CFLAGS  = $(BASE_CFLAGS) -O2 -Iuser
-USER_LDFLAGS = -m elf_i386 -T user/linker.ld -s
+# user/*.c 파일 하나가 프로그램 하나. user/lib/(*.c, syscall.asm)은 libc.a로 묶어서 링크
+USER_BUILD      = $(BUILD)/user
+USER_PROGS     := $(basename $(notdir $(wildcard user/*.c)))
+USER_ELFS       = $(addprefix $(USER_BUILD)/,$(addsuffix .elf,$(USER_PROGS)))
+USER_LIBC_OBJS := $(patsubst user/lib/%.c,$(USER_BUILD)/lib/%.o,$(wildcard user/lib/*.c)) \
+                  $(USER_BUILD)/lib/syscall.o
+USER_LIBC       = $(USER_BUILD)/libc.a
+# -nostdinc: 호스트 glibc 헤더 대신 user/include만 사용 (stddef/stdarg/stdint는 gcc 내장 헤더)
+# -fno-tree-loop-distribute-patterns: -O2가 memset/memcpy 루프를 자기 자신 호출로 바꾸지 않도록
+GCC_INCLUDE    := $(shell $(CC) -print-file-name=include)
+USER_CFLAGS     = $(BASE_CFLAGS) -O2 -fno-tree-loop-distribute-patterns \
+                  -nostdinc -isystem $(GCC_INCLUDE) -Iuser/include -Ikernel/include/uapi
+USER_LDFLAGS    = -m elf_i386 -T user/linker.ld -s
 
 # gdb 포트. 이 PC에서는 기본값 1234가 열리지 않아서 26000을 씀 (make debug GDB_PORT=1234 처럼 변경 가능)
 GDB_PORT ?= 26000
@@ -71,16 +78,19 @@ $(USER_BUILD)/crt0.o: user/crt0.asm
 	@mkdir -p $(@D)
 	$(ASM) -f elf32 $< -o $@
 
-$(USER_BUILD)/syscall.o: user/lib/syscall.asm
+$(USER_BUILD)/lib/syscall.o: user/lib/syscall.asm
 	@mkdir -p $(@D)
 	$(ASM) -f elf32 $< -o $@
 
-# crt0.o must come first so _start leads .text
-$(USER_BUILD)/%.elf: $(USER_BUILD)/crt0.o $(USER_BUILD)/%.o $(USER_BUILD)/ulib.o \
-                     $(USER_BUILD)/syscall.o user/linker.ld
-	$(LD) $(USER_LDFLAGS) -o $@ $(filter %.o,$^)
+$(USER_LIBC): $(USER_LIBC_OBJS)
+	@rm -f $@
+	$(AR) rcs $@ $^
 
-.SECONDARY: $(USER_ELFS) $(USER_LIBS) $(USER_PROGS:%=$(USER_BUILD)/%.o)
+# crt0.o must come first so _start leads .text
+$(USER_BUILD)/%.elf: $(USER_BUILD)/crt0.o $(USER_BUILD)/%.o $(USER_LIBC) user/linker.ld
+	$(LD) $(USER_LDFLAGS) -o $@ $(USER_BUILD)/crt0.o $(USER_BUILD)/$*.o $(USER_LIBC)
+
+.SECONDARY: $(USER_ELFS) $(USER_LIBC_OBJS) $(USER_BUILD)/crt0.o $(USER_PROGS:%=$(USER_BUILD)/%.o)
 
 user: $(USER_ELFS)
 

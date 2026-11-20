@@ -1,4 +1,5 @@
-#include "ulib.h"
+#include <stdio.h>
+#include <unistd.h>
 
 /*
  * Isolation test: the kernel must reject bad pointers in system calls and
@@ -6,26 +7,16 @@
  */
 int main(void)
 {
-    int r = write(1, (const char *)0xC0010000, 16);  /* kernel address */
+    printf("write(kernel ptr) = %d\n", (int)write(1, (const char *)0xC0010000, 16));
+    printf("write(low ptr)    = %d\n", (int)write(1, (const char *)0x00100000, 16));
+    printf("read(into code)   = %d\n", (int)read(0, (char *)main, 4));
 
-    print("write(kernel ptr) = ");
-    print_int(r);
-    print("\n");
+    printf("reading kernel memory...\n");
 
-    r = write(1, (const char *)0x00100000, 16);      /* below user space */
+    volatile unsigned int *kernel = (volatile unsigned int *)0xC0010000;
+    unsigned int value = *kernel;                   /* page fault -> killed */
 
-    print("write(low ptr)    = ");
-    print_int(r);
-    print("\n");
-
-    print("reading kernel memory...\n");
-
-    volatile uint32_t *kernel = (volatile uint32_t *)0xC0010000;
-    uint32_t value = *kernel;                       /* page fault -> killed */
-
-    print("BUG: still alive, read ");
-    print_int((int)value);
-    print("\n");
+    printf("BUG: still alive, read %u\n", value);
 
     return 1;
 }

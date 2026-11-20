@@ -1,15 +1,20 @@
-#include "ulib.h"
+#include <stdio.h>
+#include <stdlib.h>
+#include <unistd.h>
 
-/* Exercises sys_sleep (preemption while blocked) and exit codes. */
-int main(void)
+/*
+ * Exercises sleeping (preemption while blocked) and exit codes.
+ * Usage: count [n]   (default 3; the exit code is n)
+ */
+int main(int argc, char **argv)
 {
-    for (int i = 1; i <= 3; i++)
+    int n = argc > 1 ? atoi(argv[1]) : 3;
+
+    for (int i = 1; i <= n; i++)
     {
-        print("count ");
-        print_int(i);
-        print("\n");
-        sys_sleep(20);
+        printf("count %d (%u ms)\n", i, uptime_ms());
+        msleep(200);
     }
 
-    return 3;
+    return n;
 }

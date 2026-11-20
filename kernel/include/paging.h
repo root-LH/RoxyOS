@@ -18,7 +18,7 @@
 
 /*
  * User address space layout (per process):
- *   [USER_SPACE_START, USER_STACK_BOTTOM)  ELF segments
+ *   [USER_SPACE_START, ...)                ELF segments, then the sbrk heap
  *   [USER_STACK_BOTTOM, USER_SPACE_END)    user stack
  * 0~4MB is left unmapped so NULL pointer accesses fault.
  * Kernel half: 0xC0000000~ physical map, KERNEL_HEAP_START (memory.h) heap.
@@ -28,6 +28,11 @@
 #define USER_STACK_PAGES   4
 #define USER_STACK_TOP     USER_SPACE_END
 #define USER_STACK_BOTTOM  (USER_STACK_TOP - USER_STACK_PAGES * 4096)
+
+/* The heap (sbrk) starts after the ELF image and stops a guard page below the stack. */
+#define USER_HEAP_LIMIT    (USER_STACK_BOTTOM - 4096)
+
+#define PAGE_ALIGN_UP(x)   (((uint32_t)(x) + 4095) & ~4095u)
 
 void paging_init(void);
 
@@ -47,6 +52,9 @@ uint32_t *vmm_current_directory(void);
 
 /* New directory: kernel half shared with the kernel directory, user half empty. */
 uint32_t *vmm_create_address_space(void);
+
+/* New directory whose user half is a private copy of src's (for fork). */
+uint32_t *vmm_clone_address_space(uint32_t *src);
 
 /* Frees every user page, user page table and the directory itself. */
 void vmm_destroy_address_space(uint32_t *pd);

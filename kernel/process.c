@@ -8,6 +8,7 @@
 #include "include/paging.h"
 #include "include/cpu.h"
 #include "include/file.h"
+#include "include/memory.h"
 
 #include "include/printk.h"
 
@@ -51,6 +52,78 @@ const char *process_state_name(process_state_t state)
     return "?";
 }
 
+void process_set_name(process_t *proc, const char *name)
+{
+    /* Keep only the last path component, truncated to fit. */
+    for (const char *p = name; *p; p++)
+    {
+        if (*p == '/')
+            name = p + 1;
+    }
+
+    uint32_t i = 0;
+
+    for (; name[i] && i < PROCESS_NAME_LEN - 1; i++)
+        proc->name[i] = name[i];
+
+    proc->name[i] = '\0';
+}
+
+process_t *process_find(uint32_t pid)
+{
+    for (int i = 0; i < MAX_PROCESS; i++)
+    {
+        process_t *proc = &process_table[i];
+
+        if (proc->state != PROCESS_UNUSED && proc->pid == pid)
+            return proc;
+    }
+
+    return 0;
+}
+
+/*
+ * Claims a free slot and gives it a pid and a kernel stack with room for
+ * the initial trap frame. The process is not runnable until the caller
+ * fills in the frame and calls scheduler_add().
+ */
+static process_t *process_alloc(process_type_t type)
+{
+    /* Kernel threads count from 1, user processes from 1000. */
+    static uint32_t next_kernel_pid = 1;
+    static uint32_t next_user_pid = 1000;
+
+    process_reap();
+
+    uint32_t flags = irq_save();
+
+    for (int i = 0; i < MAX_PROCESS; i++)
+    {
+        process_t *proc = &process_table[i];
+
+        if (proc->state != PROCESS_UNUSED)
+            continue;
+
+        memset(proc, 0, sizeof(process_t));
+
+        proc->pid = type == PROCESS_USER ? next_user_pid++ : next_kernel_pid++;
+        proc->type = type;
+        proc->state = PROCESS_READY;
+
+        proc->kernel_stack = kernel_stacks[i];
+        proc->trapframe = (registers_t *)
+            (proc->kernel_stack + PROCESS_STACK_SIZE - sizeof(registers_t));
+
+        memset(proc->trapframe, 0, sizeof(registers_t));
+
+        irq_restore(flags);
+        return proc;
+    }
+
+    irq_restore(flags);
+    return 0;
+}
+
 /*
  * A kernel thread whose entry function returns lands here: the initial
  * trap frame puts this address where `ret` will pop it (see below).
@@ -62,106 +135,248 @@ static void kernel_thread_return(void)
 
 process_t *process_create_kernel(void (*entry)(void))
 {
-    static uint32_t next_pid = 1;
+    process_t *proc = process_alloc(PROCESS_KERNEL);
 
-    process_reap();
+    if (!proc)
+        return 0;
 
-    for (int i = 0; i < MAX_PROCESS; i++)
-    {
-        if (process_table[i].state != PROCESS_UNUSED)
-            continue;
+    registers_t *tf = proc->trapframe;
 
-        process_t *proc = &process_table[i];
+    tf->gs = tf->fs = tf->es = tf->ds = 0x10;
 
-        memset(proc, 0, sizeof(process_t));
+    tf->eip = (uint32_t)entry;
+    tf->cs = 0x08;
+    tf->eflags = 0x202;
 
-        proc->pid = next_pid++;
-        proc->state = PROCESS_READY;
-        proc->type = PROCESS_KERNEL;
+    /*
+     * A ring 0 -> ring 0 iret does not pop useresp/ss, so after the
+     * first iret ESP points at the useresp slot. Storing the exit
+     * trampoline there makes it the return address of entry().
+     */
+    tf->useresp = (uint32_t)kernel_thread_return;
 
-        proc->kernel_stack = kernel_stacks[i];
-
-        uint8_t *kstack_top =
-            proc->kernel_stack + PROCESS_STACK_SIZE;
-
-        kstack_top -= sizeof(registers_t);
-
-        proc->trapframe = (registers_t *)kstack_top;
-
-        memset(proc->trapframe, 0, sizeof(registers_t));
-
-        proc->trapframe->gs = 0x10;
-        proc->trapframe->fs = 0x10;
-        proc->trapframe->es = 0x10;
-        proc->trapframe->ds = 0x10;
-
-        proc->trapframe->eip = (uint32_t)entry;
-        proc->trapframe->cs = 0x08;
-        proc->trapframe->eflags = 0x202;
-
-        /*
-         * A ring 0 -> ring 0 iret does not pop useresp/ss, so after the
-         * first iret ESP points at the useresp slot. Storing the exit
-         * trampoline there makes it the return address of entry().
-         */
-        proc->trapframe->useresp = (uint32_t)kernel_thread_return;
-
-        return proc;
-    }
-
-    return 0;
+    return proc;
 }
 
 process_t *process_create_user(uint32_t *page_directory,
                                uint32_t entry, uint32_t user_esp)
 {
-    static uint32_t next_pid = 1000;
+    process_t *proc = process_alloc(PROCESS_USER);
 
-    process_reap();
+    if (!proc)
+        return 0;
 
-    for (int i = 0; i < MAX_PROCESS; i++)
+    proc->page_directory = page_directory;
+
+    registers_t *tf = proc->trapframe;
+
+    tf->gs = tf->fs = tf->es = tf->ds = 0x23;
+
+    /* First schedule irets straight into ring 3 with this frame. */
+    tf->eip = entry;
+    tf->cs = 0x1B;
+    tf->eflags = 0x202;
+    tf->useresp = user_esp;
+    tf->ss = 0x23;
+
+    return proc;
+}
+
+int process_fork(registers_t *frame)
+{
+    process_t *parent = current_process;
+
+    if (!parent || parent->type != PROCESS_USER)
+        return -1;
+
+    uint32_t *pd = vmm_clone_address_space(parent->page_directory);
+
+    if (!pd)
+        return -1;
+
+    process_t *child = process_alloc(PROCESS_USER);
+
+    if (!child)
     {
-        if (process_table[i].state != PROCESS_UNUSED)
-            continue;
-
-        process_t *proc = &process_table[i];
-
-        memset(proc, 0, sizeof(process_t));
-
-        proc->pid = next_pid++;
-
-        proc->state = PROCESS_READY;
-        proc->type = PROCESS_USER;
-
-        proc->page_directory = page_directory;
-
-        proc->kernel_stack = kernel_stacks[i];
-
-        uint8_t *kstack_top =
-            proc->kernel_stack + PROCESS_STACK_SIZE;
-
-        kstack_top -= sizeof(registers_t);
-
-        proc->trapframe = (registers_t *)kstack_top;
-
-        memset(proc->trapframe, 0, sizeof(registers_t));
-
-        proc->trapframe->gs = 0x23;
-        proc->trapframe->fs = 0x23;
-        proc->trapframe->es = 0x23;
-        proc->trapframe->ds = 0x23;
-
-        /* First schedule irets straight into ring 3 with this frame. */
-        proc->trapframe->eip = entry;
-        proc->trapframe->cs = 0x1B;
-        proc->trapframe->eflags = 0x202;
-        proc->trapframe->useresp = user_esp;
-        proc->trapframe->ss = 0x23;
-
-        return proc;
+        vmm_destroy_address_space(pd);
+        return -1;
     }
 
+    child->page_directory = pd;
+    child->heap_start = parent->heap_start;
+    child->brk = parent->brk;
+    child->parent = parent;
+    memcpy(child->name, parent->name, PROCESS_NAME_LEN);
+
+    fd_copy(child, parent);
+
+    /* The child resumes from the same int 0x80, with fork() returning 0. */
+    *child->trapframe = *frame;
+    child->trapframe->eax = 0;
+
+    klog("[proc] pid %u forked pid %u\n", parent->pid, child->pid);
+
+    scheduler_add(child);
+
+    return (int)child->pid;
+}
+
+int process_waitpid(int pid, int *status, int options)
+{
+    process_t *self = current_process;
+
+    if (!self)
+        return -1;
+
+    uint32_t flags = irq_save();
+
+    while (1)
+    {
+        int found = 0;
+
+        for (int i = 0; i < MAX_PROCESS; i++)
+        {
+            process_t *child = &process_table[i];
+
+            if (child->state == PROCESS_UNUSED || child->parent != self)
+                continue;
+
+            if (pid != -1 && child->pid != (uint32_t)pid)
+                continue;
+
+            found = 1;
+
+            if (child->state != PROCESS_EXITED)
+                continue;
+
+            int child_pid = (int)child->pid;
+
+            if (status)
+                *status = child->exit_code;
+
+            /* Exit code collected: let process_reap() free the slot. */
+            child->parent = 0;
+
+            irq_restore(flags);
+
+            process_reap();
+
+            return child_pid;
+        }
+
+        if (!found || (options & WNOHANG))
+        {
+            irq_restore(flags);
+            return found ? 0 : -1;
+        }
+
+        /* process_kill() wakes us when one of our children exits. */
+        if (wait_queue_sleep(&self->child_wq, 1) < 0)
+        {
+            irq_restore(flags);
+            return -1;
+        }
+    }
+}
+
+int process_signal_kill(uint32_t pid)
+{
+    uint32_t flags = irq_save();
+    process_t *proc = process_find(pid);
+
+    if (!proc || proc->state == PROCESS_EXITED || proc->type != PROCESS_USER)
+    {
+        irq_restore(flags);
+        return -1;
+    }
+
+    proc->killed = 1;
+
+    if (proc == current_process || (proc->trapframe->cs & 3) == 3)
+    {
+        /*
+         * Running or preempted in user mode: it holds no kernel state, so
+         * it can go right away. (Ourselves: the syscall path switches away.)
+         */
+        process_kill(proc, EXIT_KILLED);
+    }
+    else if (proc->state == PROCESS_WAITING && proc->wait_interruptible)
+    {
+        /* Asleep in a syscall: wake it so the syscall fails and it exits. */
+        wait_queue_cancel(proc);
+        proc->state = PROCESS_READY;
+        scheduler_request_resched();
+    }
+    /* Otherwise it exits when its current syscall returns (syscall_handler). */
+
+    irq_restore(flags);
+
     return 0;
+}
+
+int32_t process_sbrk(process_t *proc, int32_t increment)
+{
+    uint32_t old_brk = proc->brk;
+    uint32_t new_brk = old_brk + (uint32_t)increment;
+
+    if (increment == 0)
+        return (int32_t)old_brk;
+
+    uint32_t first = PAGE_ALIGN_UP(old_brk);
+
+    if (increment > 0)
+    {
+        if (new_brk < old_brk || new_brk > USER_HEAP_LIMIT)
+            return -1;
+
+        uint32_t last = PAGE_ALIGN_UP(new_brk);
+
+        /*
+         * Refuse up front what cannot fit, instead of taking every free
+         * frame (with interrupts off) only to give them all back.
+         */
+        if ((last - first) / PAGE_SIZE > pmm_free_frame_count())
+            return -1;
+
+        for (uint32_t va = first; va < last; va += PAGE_SIZE)
+        {
+            uint32_t frame = (uint32_t)pmm_alloc_frame();
+
+            if (frame)
+            {
+                memset((void *)P2V(frame), 0, PAGE_SIZE);
+
+                if (vmm_map(proc->page_directory, va, frame,
+                            PAGE_PRESENT | PAGE_WRITABLE | PAGE_USER) == 0)
+                    continue;
+
+                pmm_free_frame((void *)frame);
+            }
+
+            /* Out of memory: undo this call's pages. */
+            for (uint32_t undo = first; undo < va; undo += PAGE_SIZE)
+                pmm_free_frame((void *)vmm_unmap(proc->page_directory, undo));
+
+            return -1;
+        }
+    }
+    else
+    {
+        if (new_brk < proc->heap_start || new_brk > old_brk)
+            return -1;
+
+        for (uint32_t va = PAGE_ALIGN_UP(new_brk); va < first; va += PAGE_SIZE)
+        {
+            uint32_t frame = vmm_unmap(proc->page_directory, va);
+
+            if (frame)
+                pmm_free_frame((void *)frame);
+        }
+    }
+
+    proc->brk = new_brk;
+
+    return (int32_t)old_brk;
 }
 
 void process_block(void)
@@ -209,39 +424,10 @@ void process_kill(process_t *proc, int code)
 
 int process_wait(process_t *child)
 {
-    process_t *self = current_process;
+    int code;
 
-    if (!self || !child)
+    if (!child || process_waitpid((int)child->pid, &code, 0) < 0)
         return -1;
-
-    uint32_t flags = irq_save();
-
-    while (child->state != PROCESS_EXITED)
-    {
-        if (child->state == PROCESS_UNUSED || child->parent != self)
-        {
-            irq_restore(flags);
-            return -1;
-        }
-
-        /* process_kill() wakes us when one of our children exits. */
-        wait_queue_sleep(&self->child_wq, 0);
-    }
-
-    if (child->parent != self)
-    {
-        irq_restore(flags);
-        return -1;
-    }
-
-    int code = child->exit_code;
-
-    /* Exit code collected: let process_reap() free the slot. */
-    child->parent = 0;
-
-    irq_restore(flags);
-
-    process_reap();
 
     return code;
 }

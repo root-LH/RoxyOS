@@ -10,6 +10,7 @@
 #include "include/paging.h"
 #include "include/memory.h"
 #include "include/string.h"
+#include "include/elf_loader.h"
 
 /* Largest transfer of one read/write call; callers loop for more. */
 #define IO_CHUNK 4096
@@ -239,6 +240,89 @@ static int32_t sys_time(registers_t *r)
     return (int32_t)(pit_get_ticks() * (1000 / PIT_HZ));
 }
 
+static int32_t sys_fork(registers_t *r)
+{
+    return process_fork(r);
+}
+
+/* exec(path, argv): argv is a NULL-terminated array, or NULL for { path }. */
+static int32_t sys_exec(registers_t *r)
+{
+    process_t *proc = process_current();
+    char path[PATH_MAX];
+
+    if (!is_user(proc) || path_from_caller(path, r->ebx) != 0)
+        return -1;
+
+    char *argv[EXEC_MAX_ARGS];
+    char *strings = kmalloc(EXEC_MAX_ARGLEN);
+    int argc = 0;
+    uint32_t used = 0;
+    int32_t result = -1;
+
+    if (!strings)
+        return -1;
+
+    for (uint32_t uargv = r->ecx; uargv; argc++)
+    {
+        uint32_t arg;
+
+        if (from_caller(&arg, uargv + argc * sizeof(uint32_t), sizeof(arg)) != 0)
+            goto out;
+
+        if (!arg)
+            break;
+
+        if (argc == EXEC_MAX_ARGS)
+            goto out;
+
+        int len = strncpy_from_user(proc->page_directory, strings + used, arg,
+                                    EXEC_MAX_ARGLEN - used);
+
+        if (len < 0)
+            goto out;
+
+        argv[argc] = strings + used;
+        used += len + 1;
+    }
+
+    if (argc == 0)
+        argv[argc++] = path;
+
+    result = elf_exec(r, path, argc, argv);
+
+out:
+    kfree(strings);
+
+    return result;
+}
+
+static int32_t sys_waitpid(registers_t *r)
+{
+    int status;
+    int pid = process_waitpid((int)r->ebx, &status, (int)r->edx);
+
+    if (pid > 0 && r->ecx && to_caller(r->ecx, &status, sizeof(status)) != 0)
+        return -1;
+
+    return pid;
+}
+
+static int32_t sys_sbrk(registers_t *r)
+{
+    process_t *proc = process_current();
+
+    if (!is_user(proc))
+        return -1;
+
+    return process_sbrk(proc, (int32_t)r->ebx);
+}
+
+static int32_t sys_kill(registers_t *r)
+{
+    return process_signal_kill(r->ebx);
+}
+
 static const syscall_fn syscall_table[SYSCALL_COUNT] =
 {
     [SYS_WRITE]   = sys_write,
@@ -248,9 +332,14 @@ static const syscall_fn syscall_table[SYSCALL_COUNT] =
     [SYS_CLOSE]   = sys_close,
     [SYS_EXIT]    = sys_exit,
     [SYS_SLEEP]   = sys_sleep,
+    [SYS_FORK]    = sys_fork,
+    [SYS_EXEC]    = sys_exec,
+    [SYS_WAITPID] = sys_waitpid,
     [SYS_GETPID]  = sys_getpid,
+    [SYS_SBRK]    = sys_sbrk,
     [SYS_LSEEK]   = sys_lseek,
     [SYS_STAT]    = sys_stat,
+    [SYS_KILL]    = sys_kill,
     [SYS_YIELD]   = sys_yield,
     [SYS_TIME]    = sys_time,
 };

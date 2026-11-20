@@ -267,6 +267,52 @@ uint32_t *vmm_create_address_space(void)
     return pd;
 }
 
+uint32_t *vmm_clone_address_space(uint32_t *src)
+{
+    uint32_t *pd = vmm_create_address_space();
+
+    if (!pd)
+        return 0;
+
+    /* No copy-on-write yet: every user page is duplicated now. */
+    for (uint32_t i = 0; i < KERNEL_PDE_START; i++)
+    {
+        if (!(src[i] & PAGE_PRESENT))
+            continue;
+
+        uint32_t *table = (uint32_t *)P2V(ENTRY_ADDR(src[i]));
+
+        for (uint32_t j = 0; j < PTE_COUNT; j++)
+        {
+            uint32_t pte = table[j];
+
+            if (!(pte & PAGE_PRESENT))
+                continue;
+
+            uint32_t frame = (uint32_t)pmm_alloc_frame();
+
+            if (!frame)
+                goto fail;
+
+            memcpy((void *)P2V(frame), (const void *)P2V(ENTRY_ADDR(pte)), PAGE_SIZE);
+
+            uint32_t virt = (i << 22) | (j << 12);
+
+            if (vmm_map(pd, virt, frame, pte & (PAGE_WRITABLE | PAGE_USER)) != 0)
+            {
+                pmm_free_frame((void *)frame);
+                goto fail;
+            }
+        }
+    }
+
+    return pd;
+
+fail:
+    vmm_destroy_address_space(pd);
+    return 0;
+}
+
 void vmm_destroy_address_space(uint32_t *pd)
 {
     if (!pd || pd == kernel_directory)

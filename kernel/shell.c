@@ -28,6 +28,7 @@ static void cmd_mkfs(int argc, char **argv);
 static void cmd_run(int argc, char **argv);
 static void cmd_ps(int argc, char **argv);
 static void cmd_free(int argc, char **argv);
+static void cmd_kill(int argc, char **argv);
 
 typedef struct
 {
@@ -51,7 +52,8 @@ static command_t commands[] =
     { "mkfs", cmd_mkfs },
     { "run", cmd_run },
     { "ps", cmd_ps },
-    { "free", cmd_free }
+    { "free", cmd_free },
+    { "kill", cmd_kill }
 };
 
 static const int command_count = sizeof(commands) / sizeof(commands[0]);
@@ -200,9 +202,12 @@ static void cmd_help(int argc, char **argv)
     printk("  cat   - Display file contents\n");
     printk("  write - Write text to a file\n");
     printk("  rm    - Remove a file\n");
-    printk("  run   - Execute program\n");
+    printk("  mkfs  - Format the file system\n");
+    printk("  run   - Execute program: run <file> [args...]\n");
     printk("  ps    - List processes\n");
+    printk("  kill  - Kill a user process: kill <pid>\n");
     printk("  free  - Show physical memory usage\n");
+    printk("  diskread / diskwrite - Test sector 1536\n");
 }
 
 static void cmd_clear(int argc, char **argv)
@@ -403,11 +408,12 @@ static void cmd_run(int argc, char **argv)
 {
     if (argc < 2)
     {
-        printk("Usage: run <file>\n");
+        printk("Usage: run <file> [args...]\n");
     }
     else
     {
-        process_t *proc = elf_spawn(argv[1]);
+        /* The program gets argv[1..]: its own name first, as usual. */
+        process_t *proc = elf_spawn(argv[1], argc - 1, argv + 1);
 
         if (!proc)
         {
@@ -475,7 +481,7 @@ static void cmd_ps(int argc, char **argv)
     process_t *self = process_current();
     int used = 0;
 
-    kprintf("SLOT  PID   TYPE    STATE\n");
+    kprintf("SLOT  PID   PPID  TYPE    STATE    NAME\n");
 
     for (int i = 0; i < MAX_PROCESS; i++)
     {
@@ -486,10 +492,11 @@ static void cmd_ps(int argc, char **argv)
 
         used++;
 
-        kprintf("%-4d  %-4u  %-6s  %s%s\n",
-                i, proc->pid,
+        kprintf("%-4d  %-4u  %-4u  %-6s  %-7s  %s%s\n",
+                i, proc->pid, proc->parent ? proc->parent->pid : 0,
                 proc->type == PROCESS_USER ? "user" : "kernel",
                 process_state_name(proc->state),
+                proc->name,
                 proc == self ? " *" : "");
     }
 
@@ -512,4 +519,29 @@ static void cmd_free(int argc, char **argv)
 
     kprintf("heap:   %u KB mapped, %u B used, %u B free, %u blocks\n",
             heap.mapped / 1024, heap.used, heap.free, heap.blocks);
+}
+
+static void cmd_kill(int argc, char **argv)
+{
+    if (argc < 2)
+    {
+        printk("Usage: kill <pid>\n");
+        return;
+    }
+
+    uint32_t pid = 0;
+
+    for (const char *p = argv[1]; *p; p++)
+    {
+        if (*p < '0' || *p > '9')
+        {
+            printk("kill: pid must be a number\n");
+            return;
+        }
+
+        pid = pid * 10 + (uint32_t)(*p - '0');
+    }
+
+    if (process_signal_kill(pid) != 0)
+        kprintf("kill: no user process %u\n", pid);
 }

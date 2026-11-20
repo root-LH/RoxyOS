@@ -66,6 +66,9 @@ void kernel_main(void)
 
     process_t *shell = process_create_kernel(shell_task);
 
+    process_set_name(idle, "idle");
+    process_set_name(shell, "shell");
+
     scheduler_set_idle(idle);
     scheduler_add(idle);
     scheduler_add(shell);

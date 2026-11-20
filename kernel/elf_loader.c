@@ -121,11 +121,15 @@ static int copy_to_user_space(uint32_t *pd, uint32_t dst, const uint8_t *src,
     return 0;
 }
 
-static int load_segments(uint32_t *pd, const uint8_t *image, uint32_t size)
+/* Maps every PT_LOAD segment; *image_end is the end of the highest one. */
+static int load_segments(uint32_t *pd, const uint8_t *image, uint32_t size,
+                         uint32_t *image_end)
 {
     const Elf32_Ehdr *ehdr = (const Elf32_Ehdr *)image;
     const Elf32_Phdr *phdr = (const Elf32_Phdr *)(image + ehdr->e_phoff);
     int loaded = 0;
+
+    *image_end = USER_SPACE_START;
 
     for (uint16_t i = 0; i < ehdr->e_phnum; i++)
     {
@@ -162,6 +166,9 @@ static int load_segments(uint32_t *pd, const uint8_t *image, uint32_t size)
                                seg->p_memsz - seg->p_filesz, flags) != 0)
             return -1;
 
+        if (seg->p_vaddr + seg->p_memsz > *image_end)
+            *image_end = seg->p_vaddr + seg->p_memsz;
+
         loaded++;
     }
 
@@ -179,20 +186,86 @@ static int map_user_stack(uint32_t *pd)
     return 0;
 }
 
-process_t *elf_spawn(const char *path)
+/*
+ * Lays out argc/argv at the top of the new stack:
+ *
+ *   USER_STACK_TOP -> argument strings
+ *                     argv[0..argc-1], NULL
+ *   esp + 4        -> argv (pointer to the array above)
+ *   esp            -> argc
+ *
+ * crt0 passes the two words at esp to main(argc, argv).
+ */
+static int push_args(uint32_t *pd, int argc, char *const argv[], uint32_t *esp)
+{
+    uint32_t sp = USER_STACK_TOP;
+    uint32_t uargv[EXEC_MAX_ARGS + 1];
+    uint32_t total = 0;
+
+    if (argc < 0 || argc > EXEC_MAX_ARGS)
+        return -1;
+
+    for (int i = argc - 1; i >= 0; i--)
+    {
+        uint32_t len = strlen(argv[i]) + 1;
+
+        total += len;
+
+        if (total > EXEC_MAX_ARGLEN)
+            return -1;
+
+        sp -= len;
+
+        if (copy_to_user(pd, sp, argv[i], len) != 0)
+            return -1;
+
+        uargv[i] = sp;
+    }
+
+    uargv[argc] = 0;
+
+    sp &= ~3u;
+    sp -= (argc + 1) * sizeof(uint32_t);
+
+    if (copy_to_user(pd, sp, uargv, (argc + 1) * sizeof(uint32_t)) != 0)
+        return -1;
+
+    uint32_t frame[2] = { (uint32_t)argc, sp };
+
+    sp -= sizeof(frame);
+
+    if (copy_to_user(pd, sp, frame, sizeof(frame)) != 0)
+        return -1;
+
+    *esp = sp;
+
+    return 0;
+}
+
+typedef struct
+{
+    uint32_t *pd;
+    uint32_t entry;
+    uint32_t esp;
+    uint32_t brk;   /* page-aligned end of the image: start of the heap */
+} elf_image_t;
+
+/* Builds a complete new address space for path. Returns 0, or -1. */
+static int elf_load(const char *path, int argc, char *const argv[], elf_image_t *out)
 {
     int size = vfs_size(path);
 
     if (size <= 0)
-        return 0;
+        return -1;
 
     uint8_t *image = kmalloc(size);
 
     if (!image)
-        return 0;
+        return -1;
 
-    process_t *proc = 0;
+    int result = -1;
     uint32_t *pd = 0;
+    uint32_t image_end;
 
     if (vfs_read(path, image, size) != size)
         goto out;
@@ -216,29 +289,18 @@ process_t *elf_spawn(const char *path)
     if (!pd)
         goto out;
 
-    if (load_segments(pd, image, size) != 0 || map_user_stack(pd) != 0)
+    if (load_segments(pd, image, size, &image_end) != 0 || map_user_stack(pd) != 0)
         goto out;
 
-    proc = process_create_user(pd, entry, USER_STACK_TOP);
-
-    if (!proc)
+    if (push_args(pd, argc, argv, &out->esp) != 0)
         goto out;
 
-    proc->parent = process_current();
-    pd = 0;     /* owned by the process now */
+    out->pd = pd;
+    out->entry = entry;
+    out->brk = PAGE_ALIGN_UP(image_end);
 
-    if (fd_open_stdio(proc) != 0)
-    {
-        kprintf("elf: out of open files\n");
-        proc->parent = 0;   /* nobody will wait: reap it right away */
-        process_kill(proc, -1);
-        proc = 0;
-        goto out;
-    }
-
-    klog("[elf] %s -> pid %u, entry %p\n", path, proc->pid, (void *)entry);
-
-    scheduler_add(proc);
+    pd = 0;     /* handed to the caller */
+    result = 0;
 
 out:
     if (pd)
@@ -246,19 +308,73 @@ out:
 
     kfree(image);
 
+    return result;
+}
+
+process_t *elf_spawn(const char *path, int argc, char *const argv[])
+{
+    elf_image_t img;
+
+    if (elf_load(path, argc, argv, &img) != 0)
+        return 0;
+
+    process_t *proc = process_create_user(img.pd, img.entry, img.esp);
+
+    if (!proc)
+    {
+        vmm_destroy_address_space(img.pd);
+        return 0;
+    }
+
+    process_set_name(proc, path);
+    proc->heap_start = proc->brk = img.brk;
+
+    if (fd_open_stdio(proc) != 0)
+    {
+        kprintf("elf: out of open files\n");
+        process_kill(proc, -1);     /* no parent yet: reaped right away */
+        return 0;
+    }
+
+    proc->parent = process_current();
+
+    klog("[elf] %s -> pid %u, entry %p\n", path, proc->pid, (void *)img.entry);
+
+    scheduler_add(proc);
+
     return proc;
 }
 
-int elf_exec(const char *path)
+int elf_exec(registers_t *frame, const char *path, int argc, char *const argv[])
 {
-    process_t *proc = elf_spawn(path);
+    process_t *proc = process_current();
+    elf_image_t img;
 
-    if (!proc)
+    if (!proc || proc->type != PROCESS_USER)
         return -1;
 
-    int code = process_wait(proc);
+    /* The old image stays untouched until the new one is fully built. */
+    if (elf_load(path, argc, argv, &img) != 0)
+        return -1;
 
-    klog("[elf] %s exited with %d\n", path, code);
+    uint32_t *old_pd = proc->page_directory;
 
-    return code;
+    proc->page_directory = img.pd;
+    vmm_switch(img.pd);
+    vmm_destroy_address_space(old_pd);
+
+    proc->heap_start = proc->brk = img.brk;
+    process_set_name(proc, path);
+
+    /* Return from this int 0x80 into the new program, registers cleared. */
+    frame->edi = frame->esi = frame->ebp = frame->esp = 0;
+    frame->ebx = frame->edx = frame->ecx = frame->eax = 0;
+
+    frame->eip = img.entry;
+    frame->useresp = img.esp;
+    frame->eflags = 0x202;
+
+    klog("[elf] pid %u exec %s, entry %p\n", proc->pid, path, (void *)img.entry);
+
+    return 0;
 }

@@ -9,6 +9,7 @@
 #include "include/console.h"
 #include "include/memory.h"
 #include "include/process.h"
+#include "include/bcache.h"
 
 static void cmd_help(int argc, char **argv);
 static void cmd_clear(int argc, char **argv);
@@ -519,6 +520,12 @@ static void cmd_free(int argc, char **argv)
 
     kprintf("heap:   %u KB mapped, %u B used, %u B free, %u blocks\n",
             heap.mapped / 1024, heap.used, heap.free, heap.blocks);
+
+    bcache_stats_t cache;
+    bcache_get_stats(&cache);
+
+    kprintf("bcache: %u sectors, %u hits, %u misses, %u writes\n",
+            BCACHE_ENTRIES, cache.hits, cache.misses, cache.writes);
 }
 
 static void cmd_kill(int argc, char **argv)

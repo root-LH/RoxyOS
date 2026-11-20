@@ -7,6 +7,9 @@
 
 void ata_init(void);
 
+/* Size of the primary master from IDENTIFY (0 if there is no drive). */
+uint32_t ata_sector_count(void);
+
 /* IRQ14 */
 void ata_irq_handler(void);
 

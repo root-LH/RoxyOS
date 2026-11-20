@@ -20,6 +20,7 @@
 
 #define ATA_CMD_READ         0x20
 #define ATA_CMD_WRITE        0x30
+#define ATA_CMD_IDENTIFY     0xEC
 
 #define ATA_SR_ERR           0x01
 #define ATA_SR_DRQ           0x08
@@ -98,6 +99,40 @@ void ata_irq_handler(void)
     wait_queue_wake_all(&ata_wq);
 }
 
+/* LBA28 sectors reported by IDENTIFY DEVICE (0 = no drive). */
+static uint32_t ata_sectors = 0;
+
+uint32_t ata_sector_count(void)
+{
+    return ata_sectors;
+}
+
+/* IDENTIFY DEVICE, polled (runs at boot, before the scheduler). */
+static void ata_identify(void)
+{
+    uint16_t id[256];
+
+    outb(ATA_DRIVE, 0xA0);
+    ata_delay();
+
+    outb(ATA_SECTOR_COUNT, 0);
+    outb(ATA_LBA_LOW, 0);
+    outb(ATA_LBA_MID, 0);
+    outb(ATA_LBA_HIGH, 0);
+    outb(ATA_COMMAND, ATA_CMD_IDENTIFY);
+    ata_delay();
+
+    /* Status 0: no drive on the bus. */
+    if (inb(ATA_STATUS) == 0 || ata_wait_drq() != 0)
+        return;
+
+    for (int i = 0; i < 256; i++)
+        id[i] = inw(ATA_DATA);
+
+    /* Words 60-61: total user-addressable sectors (LBA28). */
+    ata_sectors = id[60] | ((uint32_t)id[61] << 16);
+}
+
 void ata_init(void)
 {
     /* nIEN = 0: let the drive raise IRQ14. */
@@ -106,7 +141,10 @@ void ata_init(void)
     outb(PIC1_DATA, inb(PIC1_DATA) & ~(1 << 2));
     outb(PIC2_DATA, inb(PIC2_DATA) & ~(1 << 6));
 
-    klog("[ata] primary master, IRQ14 enabled\n");
+    ata_identify();
+
+    klog("[ata] primary master: %u sectors (%u KB), IRQ14 enabled\n",
+         ata_sectors, ata_sectors / 2);
 }
 
 /* Selects lba and issues cmd for one sector. Interrupts must be disabled. */

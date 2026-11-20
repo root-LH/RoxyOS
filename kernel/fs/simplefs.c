@@ -1,5 +1,5 @@
 #include "../include/simplefs.h"
-#include "../include/ata.h"
+#include "../include/bcache.h"
 #include "../include/memory.h"
 #include "../include/string.h"
 #include "../include/printk.h"
@@ -14,7 +14,7 @@ static uint32_t simplefs_alloc_sector(uint32_t count)
 
     for (uint32_t s = 0; s < 16; s++)
     {
-        if (ata_read_sector(SIMPLEFS_TABLE_SECTOR + s, sector) != 0)
+        if (bcache_read(SIMPLEFS_TABLE_SECTOR + s, sector) != 0)
             return 0;
 
         simplefs_entry_t *table = (simplefs_entry_t *)sector;
@@ -76,12 +76,12 @@ void simplefs_format(void)
     sb->entry_count = 0;
     sb->data_start = SIMPLEFS_DATA_SECTOR;
 
-    ata_write_sector(SIMPLEFS_START_SECTOR, sector);
+    bcache_write(SIMPLEFS_START_SECTOR, sector);
 
     memset(sector, 0, sizeof(sector));
 
     for (int i = 0; i < 16; i++)
-        ata_write_sector(SIMPLEFS_TABLE_SECTOR + i, sector);
+        bcache_write(SIMPLEFS_TABLE_SECTOR + i, sector);
 }
 
 int simplefs_create(const char *name)
@@ -93,7 +93,7 @@ int simplefs_create(const char *name)
 
     for (uint32_t s = 0; s < 16; s++)
     {
-        if (ata_read_sector(SIMPLEFS_TABLE_SECTOR + s, sector) != 0)
+        if (bcache_read(SIMPLEFS_TABLE_SECTOR + s, sector) != 0)
             return -1;
 
         simplefs_entry_t *table =
@@ -111,7 +111,7 @@ int simplefs_create(const char *name)
                 table[i].size = 0;
                 table[i].start_sector = 0;
 
-                if (ata_write_sector(SIMPLEFS_TABLE_SECTOR + s, sector) != 0)
+                if (bcache_write(SIMPLEFS_TABLE_SECTOR + s, sector) != 0)
                     return -1;
 
                 return 0;
@@ -128,7 +128,7 @@ void simplefs_list(void)
 
     for (uint32_t s = 0; s < 16; s++)
     {
-        ata_read_sector(SIMPLEFS_TABLE_SECTOR + s, sector);
+        bcache_read(SIMPLEFS_TABLE_SECTOR + s, sector);
 
         simplefs_entry_t *table =
             (simplefs_entry_t *)sector;
@@ -150,7 +150,7 @@ simplefs_handle_t *simplefs_find(const char *name)
 
     for (uint32_t s = 0; s < 16; s++)
     {
-        if (ata_read_sector(SIMPLEFS_TABLE_SECTOR + s, sector) != 0)
+        if (bcache_read(SIMPLEFS_TABLE_SECTOR + s, sector) != 0)
             return NULL;
 
         simplefs_entry_t *table =
@@ -184,7 +184,7 @@ int simplefs_delete(const char *name)
 
     uint8_t sector[512];
 
-    if (ata_read_sector(handle->sector, sector) != 0)
+    if (bcache_read(handle->sector, sector) != 0)
         return -1;
 
     simplefs_entry_t *table =
@@ -192,7 +192,7 @@ int simplefs_delete(const char *name)
 
     memset(&table[handle->index], 0, sizeof(simplefs_entry_t));
 
-    if (ata_write_sector(handle->sector, sector) != 0)
+    if (bcache_write(handle->sector, sector) != 0)
         return -1;
 
     return 0;
@@ -250,7 +250,7 @@ int simplefs_write(const char *name, const void *data, uint32_t size)
             (const uint8_t *)data + offset,
             copy_size);
 
-        if (ata_write_sector(write_start + i, sector) != 0)
+        if (bcache_write(write_start + i, sector) != 0)
             return -1;
     }
 
@@ -259,14 +259,14 @@ int simplefs_write(const char *name, const void *data, uint32_t size)
 
     uint8_t sector[512];
 
-    if (ata_read_sector(handle->sector, sector) != 0)
+    if (bcache_read(handle->sector, sector) != 0)
         return -1;
 
     simplefs_entry_t *table = (simplefs_entry_t *)sector;
 
     table[handle->index] = handle->entry;
 
-    if (ata_write_sector(handle->sector, sector) != 0)
+    if (bcache_write(handle->sector, sector) != 0)
         return -1;
 
     return 0;
@@ -291,7 +291,7 @@ int simplefs_read(const char *name, void *buffer, uint32_t buffer_size)
     {
         uint8_t sector[512];
 
-        if (ata_read_sector(handle->entry.start_sector + i, sector) != 0)
+        if (bcache_read(handle->entry.start_sector + i, sector) != 0)
             return -1;
 
         uint32_t offset = i * 512;
@@ -334,7 +334,7 @@ int simplefs_read_at(const char *name, uint32_t offset, void *buffer, uint32_t l
         if (chunk > len - done)
             chunk = len - done;
 
-        if (ata_read_sector(entry.start_sector + pos / 512, sector) != 0)
+        if (bcache_read(entry.start_sector + pos / 512, sector) != 0)
             return -1;
 
         memcpy((uint8_t *)buffer + done, sector + in_sector, chunk);

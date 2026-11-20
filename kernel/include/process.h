@@ -4,9 +4,10 @@
 #include <stdint.h>
 #include "isr.h"
 #include "wait.h"
+#include "uapi/abi.h"
 
 #define MAX_PROCESS        16
-#define PROCESS_STACK_SIZE 8192
+#define PROCESS_STACK_SIZE 16384
 #define PROCESS_MAX_FD     16
 #define PROCESS_NAME_LEN   16
 
@@ -69,6 +70,9 @@ typedef struct process
 
     /* File descriptors (see file.h); closed when the process exits. */
     struct file *files[PROCESS_MAX_FD];
+
+    /* Working directory: a normalized absolute path (see vfs_abspath). */
+    char cwd[PATH_MAX];
 
 } process_t;
 

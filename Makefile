@@ -9,6 +9,9 @@ AR      = ar
 
 BUILD = build
 
+# 디스크 이미지 크기. 섹터 2048부터 끝까지가 파일 시스템 (RXFS)
+IMG_SIZE = 8M
+
 # 커널/유저 공통. -MMD -MP: 헤더 의존성을 .d 파일로 생성
 BASE_CFLAGS = -m32 \
               -ffreestanding \
@@ -120,14 +123,13 @@ $(BUILD)/stage2.bin: boot/stage2.asm boot/gdt.inc
 
 $(BUILD)/os.img: $(BUILD)/stage1.bin $(BUILD)/stage2.bin $(BUILD)/kernel.bin \
                  $(USER_ELFS) tools/fsadd.py
-	@if [ ! -f $@ ]; then \
-		dd if=/dev/zero of=$@ bs=512 count=4096; \
-	fi
+	@# 기존 이미지는 파일 시스템을 보존하고, 작으면 IMG_SIZE까지만 늘림 (truncate '>' = 최소 크기)
+	truncate -s '>$(IMG_SIZE)' $@
 	dd if=$(BUILD)/stage1.bin of=$@ conv=notrunc
 	dd if=$(BUILD)/stage2.bin of=$@ bs=512 seek=1 conv=notrunc
 	dd if=$(BUILD)/kernel.bin of=$@ bs=512 seek=2 conv=notrunc
 	@for p in $(USER_PROGS); do \
-		python3 tools/fsadd.py $@ $$p $(USER_BUILD)/$$p.elf || exit 1; \
+		python3 tools/fsadd.py $@ /bin/$$p $(USER_BUILD)/$$p.elf || exit 1; \
 	done
 
 # ---- Run / debug ----

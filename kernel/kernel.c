@@ -51,6 +51,7 @@ void kernel_main(void)
 
     /* Kernel Subsystem */
     file_init();
+    vfs_init();
 
     /* TSS */
     tss_init();

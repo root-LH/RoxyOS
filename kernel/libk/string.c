@@ -93,3 +93,14 @@ int memcmp(const void *a, const void *b, size_t n)
 
     return 0;
 }
+char *strchr(const char *s, int c)
+{
+    for (;; s++)
+    {
+        if (*s == (char)c)
+            return (char *)s;
+
+        if (*s == '\0')
+            return 0;
+    }
+}

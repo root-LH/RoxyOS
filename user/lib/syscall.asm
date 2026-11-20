@@ -42,3 +42,11 @@ SYSCALL stat,      13, 2    ; path, &st
 SYSCALL kill,      14, 1    ; pid
 SYSCALL yield,     15, 0
 SYSCALL uptime_ms, 16, 0
+SYSCALL mkdir,     17, 1    ; path
+SYSCALL unlink,    18, 1    ; path
+SYSCALL rmdir,     19, 1    ; path
+SYSCALL rename,    20, 2    ; old, new
+SYSCALL chdir,     21, 1    ; path
+SYSCALL sys_getcwd, 22, 2   ; buf, size -> length
+SYSCALL getdirent, 23, 2    ; fd, &dirent -> 1 / 0 at the end
+SYSCALL fstat,     27, 2    ; fd, &st

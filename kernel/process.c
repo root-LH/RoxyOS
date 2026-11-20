@@ -110,6 +110,8 @@ static process_t *process_alloc(process_type_t type)
         proc->type = type;
         proc->state = PROCESS_READY;
 
+        strcpy(proc->cwd, "/");
+
         proc->kernel_stack = kernel_stacks[i];
         proc->trapframe = (registers_t *)
             (proc->kernel_stack + PROCESS_STACK_SIZE - sizeof(registers_t));
@@ -207,6 +209,7 @@ int process_fork(registers_t *frame)
     child->brk = parent->brk;
     child->parent = parent;
     memcpy(child->name, parent->name, PROCESS_NAME_LEN);
+    strcpy(child->cwd, parent->cwd);
 
     fd_copy(child, parent);
 

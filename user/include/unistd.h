@@ -36,6 +36,15 @@ int yield(void);
 /* Milliseconds since boot. */
 unsigned int uptime_ms(void);
 
+/* Files and directories. Paths are relative to the working directory. */
+int unlink(const char *path);
+int rmdir(const char *path);
+int rename(const char *old_path, const char *new_path);
+int chdir(const char *path);
+
+/* Copies the working directory into buf; returns buf, or NULL if it does not fit. */
+char *getcwd(char *buf, size_t size);
+
 /* One raw key from the keyboard, without echo or line editing. */
 int getkey(void);
 

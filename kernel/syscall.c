@@ -183,17 +183,94 @@ static int32_t sys_stat(registers_t *r)
     if (path_from_caller(path, r->ebx) != 0)
         return -1;
 
-    int size = vfs_size(path);
-
-    if (size < 0)
-        return -1;
-
     struct stat st;
 
-    st.st_size = (uint32_t)size;
-    st.st_mode = S_IFREG;
+    if (vfs_stat(path, &st) != 0)
+        return -1;
 
     return to_caller(r->ecx, &st, sizeof(st));
+}
+
+static int32_t sys_fstat(registers_t *r)
+{
+    file_t *file = fd_get(process_current(), (int)r->ebx);
+    struct stat st;
+
+    if (!file || file_stat(file, &st) != 0)
+        return -1;
+
+    return to_caller(r->ecx, &st, sizeof(st));
+}
+
+/* Calls op on the path in ebx. */
+static int32_t path_call(registers_t *r, int (*op)(const char *))
+{
+    char path[PATH_MAX];
+
+    if (path_from_caller(path, r->ebx) != 0)
+        return -1;
+
+    return op(path);
+}
+
+static int32_t sys_mkdir(registers_t *r)
+{
+    return path_call(r, vfs_mkdir);
+}
+
+static int32_t sys_unlink(registers_t *r)
+{
+    return path_call(r, vfs_unlink);
+}
+
+static int32_t sys_rmdir(registers_t *r)
+{
+    return path_call(r, vfs_rmdir);
+}
+
+static int32_t sys_chdir(registers_t *r)
+{
+    return path_call(r, vfs_chdir);
+}
+
+static int32_t sys_rename(registers_t *r)
+{
+    char old_path[PATH_MAX], new_path[PATH_MAX];
+
+    if (path_from_caller(old_path, r->ebx) != 0 || path_from_caller(new_path, r->ecx) != 0)
+        return -1;
+
+    return vfs_rename(old_path, new_path);
+}
+
+/* getcwd(buf, size): copies the NUL-terminated path, returns its length. */
+static int32_t sys_getcwd(registers_t *r)
+{
+    const char *cwd = vfs_getcwd();
+    uint32_t len = strlen(cwd);
+
+    if (r->ecx < len + 1 || to_caller(r->ebx, cwd, len + 1) != 0)
+        return -1;
+
+    return (int32_t)len;
+}
+
+static int32_t sys_readdir(registers_t *r)
+{
+    file_t *file = fd_get(process_current(), (int)r->ebx);
+    struct dirent entry;
+
+    if (!file)
+        return -1;
+
+    memset(&entry, 0, sizeof(entry));
+
+    int n = file_readdir(file, &entry);
+
+    if (n == 1 && to_caller(r->ecx, &entry, sizeof(entry)) != 0)
+        return -1;
+
+    return n;
 }
 
 static int32_t sys_exit(registers_t *r)
@@ -342,6 +419,14 @@ static const syscall_fn syscall_table[SYSCALL_COUNT] =
     [SYS_KILL]    = sys_kill,
     [SYS_YIELD]   = sys_yield,
     [SYS_TIME]    = sys_time,
+    [SYS_MKDIR]   = sys_mkdir,
+    [SYS_UNLINK]  = sys_unlink,
+    [SYS_RMDIR]   = sys_rmdir,
+    [SYS_RENAME]  = sys_rename,
+    [SYS_CHDIR]   = sys_chdir,
+    [SYS_GETCWD]  = sys_getcwd,
+    [SYS_READDIR] = sys_readdir,
+    [SYS_FSTAT]   = sys_fstat,
 };
 
 void syscall_handler(registers_t *r)

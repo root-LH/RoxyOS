@@ -10,22 +10,17 @@
 #include "include/memory.h"
 #include "include/process.h"
 #include "include/bcache.h"
+#include "include/shell_fs.h"
 
 static void cmd_help(int argc, char **argv);
 static void cmd_clear(int argc, char **argv);
 static void cmd_echo(int argc, char **argv);
 static void cmd_version(int argc, char **argv);
-static void cmd_touch(int argc, char **argv);
-static void cmd_ls(int argc, char **argv);
-static void cmd_cat(int argc, char **argv);
-static void cmd_write(int argc, char **argv);
-static void cmd_rm(int argc, char **argv);
-/* 커널(2~1025)과 SimpleFS(2048~) 사이의 빈 섹터 */
+/* 커널(2~1025)과 파일 시스템(2048~) 사이의 빈 섹터 */
 #define DISK_SCRATCH_SECTOR 1536
 
 static void cmd_diskread(int argc, char **argv);
 static void cmd_diskwrite(int argc, char **argv);
-static void cmd_mkfs(int argc, char **argv);
 static void cmd_run(int argc, char **argv);
 static void cmd_ps(int argc, char **argv);
 static void cmd_free(int argc, char **argv);
@@ -43,14 +38,23 @@ static command_t commands[] =
     { "clear", cmd_clear },
     { "echo",  cmd_echo  },
     { "version", cmd_version },
-    { "touch", cmd_touch },
     { "ls", cmd_ls },
     { "cat", cmd_cat },
+    { "touch", cmd_touch },
     { "write", cmd_write },
+    { "append", cmd_append },
     { "rm", cmd_rm },
+    { "mkdir", cmd_mkdir },
+    { "rmdir", cmd_rmdir },
+    { "cd", cmd_cd },
+    { "pwd", cmd_pwd },
+    { "mv", cmd_mv },
+    { "cp", cmd_cp },
+    { "stat", cmd_stat },
+    { "df", cmd_df },
+    { "mkfs", cmd_mkfs },
     { "diskread", cmd_diskread },
     { "diskwrite", cmd_diskwrite },
-    { "mkfs", cmd_mkfs },
     { "run", cmd_run },
     { "ps", cmd_ps },
     { "free", cmd_free },
@@ -61,7 +65,7 @@ static const int command_count = sizeof(commands) / sizeof(commands[0]);
 
 void shell_print_prompt(void)
 {
-    printk("RoxyOS> ");
+    kprintf("RoxyOS:%s> ", vfs_getcwd());
 }
 
 static char input_buffer[INPUT_BUFFER_SIZE];
@@ -194,21 +198,17 @@ static void cmd_help(int argc, char **argv)
     (void)argv;
 
     printk("Commands:\n");
-    printk("  help  - Show available commands\n");
-    printk("  clear - Clear the screen\n");
-    printk("  echo  - Print text\n");
-    printk("  version  - Show OS version\n");
-    printk("  touch - Create a file\n");
-    printk("  ls    - List files\n");
-    printk("  cat   - Display file contents\n");
-    printk("  write - Write text to a file\n");
-    printk("  rm    - Remove a file\n");
-    printk("  mkfs  - Format the file system\n");
-    printk("  run   - Execute program: run <file> [args...]\n");
-    printk("  ps    - List processes\n");
-    printk("  kill  - Kill a user process: kill <pid>\n");
-    printk("  free  - Show physical memory usage\n");
-    printk("  diskread / diskwrite - Test sector 1536\n");
+    printk("  help clear echo version ps free\n");
+    printk("  run <prog> [args...]  - Run a program (bare names are searched in /bin)\n");
+    printk("  kill <pid>            - Kill a user process\n");
+    printk("  ls [dir]  cat <file>  touch <file>  rm <file>  stat <path>\n");
+    printk("  write <file> <text>   - Replace a file's contents\n");
+    printk("  append <file> <text>  - Add a line to a file\n");
+    printk("  mkdir <dir>  rmdir <dir>  cd [dir]  pwd\n");
+    printk("  mv <from> <to>  cp <from> <to>\n");
+    printk("  df                    - File system usage\n");
+    printk("  mkfs                  - Format the disk file system\n");
+    printk("  diskread / diskwrite  - Test sector 1536\n");
 }
 
 static void cmd_clear(int argc, char **argv)
@@ -244,108 +244,6 @@ static void cmd_version(int argc, char **argv)
     (void)argv;
 
     printk("RoxyOS version 0.1.0\n");
-}
-
-static void cmd_touch(int argc, char **argv)
-{
-    if (argc < 2)
-    {
-        printk("Usage: touch <file>\n");
-        return;
-    }
-
-    if (vfs_create(argv[1]) == 0)
-        printk("File created.\n");
-    else
-        printk("Create failed.\n");
-}
-
-static void cmd_ls(int argc, char **argv)
-{
-    (void)argc;
-    (void)argv;
-
-    vfs_list();
-}
-
-static void cmd_cat(int argc, char **argv)
-{
-    if (argc < 2)
-    {
-        printk("Usage: cat <file>\n");
-        return;
-    }
-
-    int file_size = vfs_size(argv[1]);
-
-    if (file_size < 0)
-    {
-        printk("Read failed.\n");
-        return;
-    }
-
-    char *buffer = kmalloc(file_size + 1);
-
-    if (!buffer)
-    {
-        printk("Out of memory.\n");
-        return;
-    }
-
-    int size = (file_size == 0) ? 0 : vfs_read(argv[1], buffer, file_size);
-
-    if (size < 0)
-    {
-        printk("Read failed.\n");
-        kfree(buffer);
-        return;
-    }
-
-    buffer[size] = '\0';
-
-    printk(buffer);
-    printk("\n");
-
-    kfree(buffer);
-}
-
-static void cmd_write(int argc, char **argv)
-{
-    if (argc < 3)
-    {
-        printk("Usage: write <file> <text>\n");
-        return;
-    }
-
-    char buffer[512];
-    buffer[0] = '\0';
-
-    for (int i = 2; i < argc; i++)
-    {
-        strcat(buffer, argv[i]);
-
-        if (i != argc - 1)
-            strcat(buffer, " ");
-    }
-
-    if (vfs_write(argv[1], buffer, strlen(buffer)) == 0)
-        printk("Write complete.\n");
-    else
-        printk("Write failed.\n");
-}
-
-static void cmd_rm(int argc, char **argv)
-{
-    if (argc < 2)
-    {
-        printk("Usage: rm <file>\n");
-        return;
-    }
-
-    if (vfs_delete(argv[1]) == 0)
-        printk("File removed.\n");
-    else
-        printk("Remove failed.\n");
 }
 
 static void cmd_diskread(int argc, char **argv)
@@ -393,16 +291,6 @@ static void cmd_diskwrite(int argc, char **argv)
     {
         printk("Write Failed\n");
     }
-}
-
-static void cmd_mkfs(int argc, char **argv)
-{
-    (void)argc;
-    (void)argv;
-
-    simplefs_format();
-
-    printk("SimpleFS formatted.\n");
 }
 
 static void cmd_run(int argc, char **argv)

@@ -26,8 +26,19 @@
 #define SYS_KILL      14  /* kill(pid)                                      */
 #define SYS_YIELD     15  /* yield()                                        */
 #define SYS_TIME      16  /* time() -> milliseconds since boot              */
+#define SYS_MKDIR     17  /* mkdir(path)                                    */
+#define SYS_UNLINK    18  /* unlink(path): remove a file                    */
+#define SYS_RMDIR     19  /* rmdir(path): remove an empty directory         */
+#define SYS_RENAME    20  /* rename(old, new)                               */
+#define SYS_CHDIR     21  /* chdir(path)                                    */
+#define SYS_GETCWD    22  /* getcwd(buf, size) -> length                    */
+#define SYS_READDIR   23  /* readdir(fd, &dirent) -> 1, 0 at the end       */
+#define SYS_DUP       24  /* dup(fd) -> new fd                              */
+#define SYS_DUP2      25  /* dup2(fd, newfd) -> newfd                       */
+#define SYS_PIPE      26  /* pipe(int fds[2]): fds[0] read, fds[1] write    */
+#define SYS_FSTAT     27  /* fstat(fd, &st)                                 */
 
-#define SYSCALL_COUNT 17
+#define SYSCALL_COUNT 28
 
 /* Standard file descriptors (the console) */
 #define STDIN_FILENO  0
@@ -51,14 +62,29 @@
 /* waitpid() options */
 #define WNOHANG 1
 
-/* stat() */
+/* stat() / dirent types */
 #define S_IFREG 1   /* regular file */
-#define S_IFCHR 2   /* character device (console) */
+#define S_IFCHR 2   /* character device (/dev/tty, /dev/null, ...) */
+#define S_IFDIR 3   /* directory */
+#define S_IFIFO 4   /* pipe */
 
 struct stat
 {
     unsigned int st_size;
     unsigned int st_mode;
+    unsigned int st_ino;
+    unsigned int st_nlink;
+};
+
+/* Longest file name (one path component), without the NUL */
+#define NAME_MAX 27
+
+/* readdir() */
+struct dirent
+{
+    unsigned int d_ino;
+    unsigned int d_type;            /* S_IF* */
+    char d_name[NAME_MAX + 1];
 };
 
 /* Exit code of a process ended by kill() (128 + SIGKILL, as in shells) */
@@ -68,7 +94,7 @@ struct stat
 #define EXEC_MAX_ARGS  16
 #define EXEC_MAX_ARGLEN 1024
 
-/* Longest path accepted by open/stat/exec, including the NUL */
-#define PATH_MAX 32
+/* Longest path accepted by open/stat/exec/..., including the NUL */
+#define PATH_MAX 128
 
 #endif

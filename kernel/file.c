@@ -1,10 +1,6 @@
 #include "include/file.h"
 #include "include/process.h"
 #include "include/vfs.h"
-#include "include/keyboard.h"
-#include "include/console.h"
-#include "include/vga.h"
-#include "include/printk.h"
 #include "include/string.h"
 #include "include/cpu.h"
 
@@ -41,33 +37,22 @@ static file_t *file_alloc(file_type_t type, int flags)
 
 file_t *file_open(const char *path, int flags)
 {
-    if (strlen(path) >= PATH_MAX || path[0] == '\0')
+    inode_t *inode;
+
+    if (vfs_open(path, flags, &inode) != 0)
         return 0;
 
-    if (!vfs_exists(path))
-    {
-        if (!(flags & O_CREAT) || vfs_create(path) != 0)
-            return 0;
-    }
-    else if ((flags & O_TRUNC) && (flags & O_ACCMODE) != O_RDONLY)
-    {
-        if (vfs_write(path, "", 0) != 0)
-            return 0;
-    }
-
-    file_t *file = file_alloc(FILE_REGULAR, flags);
+    file_t *file = file_alloc(FILE_INODE, flags);
 
     if (!file)
+    {
+        inode_put(inode);
         return 0;
+    }
 
-    strcpy(file->name, path);
+    file->inode = inode;
 
     return file;
-}
-
-file_t *file_open_console(void)
-{
-    return file_alloc(FILE_CONSOLE, O_RDWR);
 }
 
 file_t *file_dup(file_t *file)
@@ -84,47 +69,18 @@ file_t *file_dup(file_t *file)
 void file_close(file_t *file)
 {
     uint32_t irq = irq_save();
+    inode_t *inode = 0;
 
     if (file->refcount > 0 && --file->refcount == 0)
-        file->type = FILE_NONE;
-
-    irq_restore(irq);
-}
-
-/* Cooked console input: echo, backspace editing, returns after '\n'. */
-static int console_read(char *buf, uint32_t len)
-{
-    uint32_t n = 0;
-
-    while (n < len)
     {
-        int c = keyboard_read(1);
-
-        if (c < 0)
-            return n ? (int)n : -1;     /* killed while waiting */
-
-        if (c == '\b')
-        {
-            if (n > 0)
-            {
-                n--;
-                vga_backspace();
-            }
-            continue;
-        }
-
-        /* Arrow keys have no meaning in a plain line. */
-        if (c >= 0x80)
-            continue;
-
-        buf[n++] = (char)c;
-        console_putchar((char)c);
-
-        if (c == '\n')
-            break;
+        inode = file->inode;
+        file->inode = 0;
+        file->type = FILE_NONE;
     }
 
-    return (int)n;
+    irq_restore(irq);
+
+    inode_put(inode);
 }
 
 static int readable(file_t *file)
@@ -139,18 +95,17 @@ static int writable(file_t *file)
 
 int file_read(file_t *file, void *buf, uint32_t len)
 {
-    if (!readable(file))
+    inode_t *inode = file->inode;
+
+    if (!readable(file) || inode->type == INODE_DIR)
         return -1;
 
     if (len == 0)
         return 0;
 
-    if (file->type == FILE_CONSOLE)
-        return console_read(buf, len);
+    int n = inode->fs->ops->read(inode, file->offset, buf, len);
 
-    int n = vfs_read_at(file->name, file->offset, buf, len);
-
-    if (n > 0)
+    if (n > 0 && inode->type == INODE_FILE)
         file->offset += n;
 
     return n;
@@ -158,31 +113,20 @@ int file_read(file_t *file, void *buf, uint32_t len)
 
 int file_write(file_t *file, const void *buf, uint32_t len)
 {
+    inode_t *inode = file->inode;
+
     if (!writable(file))
         return -1;
 
     if (len == 0)
         return 0;
 
-    if (file->type == FILE_CONSOLE)
-    {
-        printk_write(buf, len);
-        return (int)len;
-    }
+    if (inode->type == INODE_FILE && (file->flags & O_APPEND))
+        file->offset = inode->size;
 
-    if (file->flags & O_APPEND)
-    {
-        int size = vfs_size(file->name);
+    int n = inode->fs->ops->write(inode, file->offset, buf, len);
 
-        if (size < 0)
-            return -1;
-
-        file->offset = (uint32_t)size;
-    }
-
-    int n = vfs_write_at(file->name, file->offset, buf, len);
-
-    if (n > 0)
+    if (n > 0 && inode->type == INODE_FILE)
         file->offset += n;
 
     return n;
@@ -190,7 +134,9 @@ int file_write(file_t *file, const void *buf, uint32_t len)
 
 int file_seek(file_t *file, int32_t offset, int whence)
 {
-    if (file->type != FILE_REGULAR)
+    inode_t *inode = file->inode;
+
+    if (inode->type != INODE_FILE && inode->type != INODE_DIR)
         return -1;
 
     int32_t base;
@@ -199,25 +145,36 @@ int file_seek(file_t *file, int32_t offset, int whence)
     {
         case SEEK_SET: base = 0; break;
         case SEEK_CUR: base = (int32_t)file->offset; break;
-        case SEEK_END:
-            base = vfs_size(file->name);
-
-            if (base < 0)
-                return -1;
-            break;
-        default:
-            return -1;
+        case SEEK_END: base = (int32_t)inode->size; break;
+        default:       return -1;
     }
 
     int32_t pos = base + offset;
 
-    /* Seeking past the end is allowed; a later write fills the gap with zeros. */
+    /* Seeking past the end is allowed; the gap reads as zeros. */
     if (pos < 0 || (offset > 0 && pos < base))
         return -1;
 
     file->offset = (uint32_t)pos;
 
     return pos;
+}
+
+int file_readdir(file_t *file, struct dirent *out)
+{
+    inode_t *inode = file->inode;
+
+    if (inode->type != INODE_DIR)
+        return -1;
+
+    return inode->fs->ops->readdir(inode, &file->offset, out);
+}
+
+int file_stat(file_t *file, struct stat *st)
+{
+    vfs_inode_stat(file->inode, st);
+
+    return 0;
 }
 
 int fd_install(process_t *proc, file_t *file)
@@ -269,15 +226,15 @@ void fd_copy(process_t *dst, process_t *src)
 
 int fd_open_stdio(process_t *proc)
 {
-    file_t *console = file_open_console();
+    file_t *tty = file_open("/dev/tty", O_RDWR);
 
-    if (!console)
+    if (!tty)
         return -1;
 
     /* One open file behind 0, 1 and 2, like a terminal. */
-    proc->files[STDIN_FILENO]  = console;
-    proc->files[STDOUT_FILENO] = file_dup(console);
-    proc->files[STDERR_FILENO] = file_dup(console);
+    proc->files[STDIN_FILENO]  = tty;
+    proc->files[STDOUT_FILENO] = file_dup(tty);
+    proc->files[STDERR_FILENO] = file_dup(tty);
 
     return 0;
 }

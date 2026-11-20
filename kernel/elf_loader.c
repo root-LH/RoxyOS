@@ -250,25 +250,45 @@ typedef struct
     uint32_t brk;   /* page-aligned end of the image: start of the heap */
 } elf_image_t;
 
-/* Builds a complete new address space for path. Returns 0, or -1. */
-static int elf_load(const char *path, int argc, char *const argv[], elf_image_t *out)
+/*
+ * A bare program name ("ls") that is not in the working directory is
+ * looked up in /bin. Writes the path to use into out[PATH_MAX].
+ */
+static int resolve_program(const char *path, char *out)
 {
-    int size = vfs_size(path);
+    struct stat st;
 
-    if (size <= 0)
+    if (strchr(path, '/') || (vfs_stat(path, &st) == 0 && st.st_mode == S_IFREG))
+    {
+        if (strlen(path) >= PATH_MAX)
+            return -1;
+
+        strcpy(out, path);
+        return 0;
+    }
+
+    if (strlen(path) + 5 >= PATH_MAX)
         return -1;
 
-    uint8_t *image = kmalloc(size);
+    strcpy(out, "/bin/");
+    strcat(out, path);
 
-    if (!image)
+    return 0;
+}
+
+/* Builds a complete new address space for path. Returns 0, or -1. */
+static int elf_load(const char *name, int argc, char *const argv[], elf_image_t *out)
+{
+    char path[PATH_MAX];
+    uint8_t *image;
+    uint32_t size;
+
+    if (resolve_program(name, path) != 0 || vfs_read_all(path, &image, &size) != 0)
         return -1;
 
     int result = -1;
     uint32_t *pd = 0;
     uint32_t image_end;
-
-    if (vfs_read(path, image, size) != size)
-        goto out;
 
     if (elf_check_header((const Elf32_Ehdr *)image, size) != 0)
     {
@@ -328,6 +348,7 @@ process_t *elf_spawn(const char *path, int argc, char *const argv[])
 
     process_set_name(proc, path);
     proc->heap_start = proc->brk = img.brk;
+    strcpy(proc->cwd, vfs_getcwd());
 
     if (fd_open_stdio(proc) != 0)
     {

@@ -1,6 +1,8 @@
 #ifndef WAIT_H
 #define WAIT_H
 
+#include "types.h"
+
 struct process;
 
 /*
@@ -31,6 +33,18 @@ typedef struct wait_queue
  * waits for the next interrupt and the caller re-checks its condition.
  */
 int wait_queue_sleep(wait_queue_t *wq, int interruptible);
+
+/*
+ * wait_queue_sleep() that also gives up after `ticks` timer ticks.
+ * Returns 0 when woken, WAIT_TIMEOUT when the time ran out first, or -1
+ * if interruptible and killed. Before the scheduler starts it waits for
+ * one interrupt like wait_queue_sleep() (the caller re-checks).
+ */
+#define WAIT_TIMEOUT 1
+int wait_queue_sleep_timeout(wait_queue_t *wq, int interruptible, uint32_t ticks);
+
+/* Wakes waiters whose timeout has passed (timer IRQ, via the scheduler). */
+void wait_queue_check_timeout(struct process *proc, uint32_t now);
 
 /* Makes every waiter on wq runnable. Safe from IRQ handlers. */
 void wait_queue_wake_all(wait_queue_t *wq);

@@ -3,7 +3,9 @@
 #include "include/process.h"
 #include "include/scheduler.h"
 
-int wait_queue_sleep(wait_queue_t *wq, int interruptible)
+#include "include/pit.h"
+
+static int sleep_on(wait_queue_t *wq, int interruptible, uint32_t ticks)
 {
     uint32_t flags = irq_save();
     process_t *self = process_current();
@@ -26,14 +28,54 @@ int wait_queue_sleep(wait_queue_t *wq, int interruptible)
     wq->head = self;
     self->waiting_on = wq;
     self->wait_interruptible = interruptible;
+    self->wait_timed_out = 0;
+    self->wait_deadline = 0;
+
+    if (ticks)
+    {
+        /* 0 means "no deadline", so a deadline that lands on tick 0 moves by one. */
+        self->wait_deadline = pit_get_ticks() + ticks;
+
+        if (self->wait_deadline == 0)
+            self->wait_deadline = 1;
+    }
     self->state = PROCESS_WAITING;
 
     process_block();
 
-    /* The waker (or process_signal_kill) already took us off the queue. */
+    /* The waker (or process_signal_kill, or the timeout) took us off the queue. */
+    self->wait_deadline = 0;
     irq_restore(flags);
 
-    return (interruptible && self->killed) ? -1 : 0;
+    if (interruptible && self->killed)
+        return -1;
+
+    return self->wait_timed_out ? WAIT_TIMEOUT : 0;
+}
+
+int wait_queue_sleep(wait_queue_t *wq, int interruptible)
+{
+    return sleep_on(wq, interruptible, 0);
+}
+
+int wait_queue_sleep_timeout(wait_queue_t *wq, int interruptible, uint32_t ticks)
+{
+    return sleep_on(wq, interruptible, ticks ? ticks : 1);
+}
+
+void wait_queue_check_timeout(process_t *proc, uint32_t now)
+{
+    if (proc->state != PROCESS_WAITING || !proc->wait_deadline)
+        return;
+
+    if ((int32_t)(now - proc->wait_deadline) < 0)
+        return;
+
+    wait_queue_cancel(proc);
+    proc->wait_deadline = 0;
+    proc->wait_timed_out = 1;
+    proc->state = PROCESS_READY;
+    scheduler_request_resched();
 }
 
 void wait_queue_wake_all(wait_queue_t *wq)

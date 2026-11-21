@@ -29,3 +29,16 @@ inw:
     xor eax, eax
     in ax, dx
     ret
+global outl
+global inl
+
+outl:
+    mov dx, [esp+4]
+    mov eax, [esp+8]
+    out dx, eax
+    ret
+
+inl:
+    mov dx, [esp+4]
+    in eax, dx
+    ret

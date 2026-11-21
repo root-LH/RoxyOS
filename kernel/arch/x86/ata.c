@@ -4,6 +4,7 @@
 #include "../../include/wait.h"
 #include "../../include/process.h"
 #include "../../include/printk.h"
+#include "../../include/pit.h"
 
 #define ATA_PRIMARY_IO       0x1F0
 #define ATA_PRIMARY_CTRL     0x3F6
@@ -76,18 +77,54 @@ static int ata_wait_drq(void)
     return -1;
 }
 
+/* How long a process waits for IRQ14 before checking the drive itself. */
+#define ATA_IRQ_TIMEOUT      (5 * PIT_HZ)
+
 /*
  * Waits for the drive to finish the current step. With a process to put
  * to sleep, the CPU runs something else until IRQ14; during early boot
  * the status register is polled instead. Interrupts must be disabled.
+ *
+ * If the IRQ never comes, the drive is checked directly: not busy means
+ * the interrupt was lost and the transfer can go on; still busy means it
+ * hung, and -1 is returned.
  */
-static void ata_wait_irq(void)
+static int ata_wait_irq(void)
 {
     if (!process_current())
-        return;
+        return 0;
 
     while (!ata_irq_fired)
-        wait_queue_sleep(&ata_wq, 0);
+    {
+        if (wait_queue_sleep_timeout(&ata_wq, 0, ATA_IRQ_TIMEOUT) == WAIT_TIMEOUT &&
+            !ata_irq_fired)
+        {
+            if (inb(ATA_STATUS) & ATA_SR_BSY)
+            {
+                klog("[ata] no IRQ14 and drive still busy\n");
+                return -1;
+            }
+
+            klog("[ata] IRQ14 lost, continuing\n");
+            break;
+        }
+    }
+
+    ata_irq_fired = 0;
+
+    return 0;
+}
+
+/* Software reset (SRST) after a hung command; IRQs stay enabled (nIEN = 0). */
+static void ata_soft_reset(void)
+{
+    outb(ATA_PRIMARY_CTRL, 0x04);
+    ata_delay();
+    outb(ATA_PRIMARY_CTRL, 0x00);
+    ata_delay();
+
+    ata_wait_busy();
+    ata_irq_fired = 0;
 }
 
 void ata_irq_handler(void)
@@ -147,15 +184,18 @@ void ata_init(void)
          ata_sectors, ata_sectors / 2);
 }
 
-/* Selects lba and issues cmd for one sector. Interrupts must be disabled. */
-static int ata_issue(uint32_t lba, uint8_t cmd)
+/*
+ * Selects lba and issues cmd for count sectors (1..ATA_MAX_SECTORS; the
+ * register takes 0 for 256). Interrupts must be disabled.
+ */
+static int ata_issue(uint32_t lba, uint32_t count, uint8_t cmd)
 {
     if (ata_wait_busy() != 0)
         return -1;
 
     outb(ATA_DRIVE, 0xE0 | ((lba >> 24) & 0x0F));
 
-    outb(ATA_SECTOR_COUNT, 1);
+    outb(ATA_SECTOR_COUNT, (uint8_t)count);
 
     outb(ATA_LBA_LOW, lba & 0xFF);
     outb(ATA_LBA_MID, (lba >> 8) & 0xFF);
@@ -170,58 +210,89 @@ static int ata_issue(uint32_t lba, uint8_t cmd)
     return 0;
 }
 
-int ata_read_sector(uint32_t lba, void *buffer)
+static int ata_range_ok(uint32_t lba, uint32_t count)
+{
+    if (count == 0 || count > ATA_MAX_SECTORS)
+        return 0;
+
+    /* LBA28, and inside the drive when IDENTIFY told us its size. */
+    if (lba + count < lba || lba + count > (1u << 28))
+        return 0;
+
+    return !ata_sectors || lba + count <= ata_sectors;
+}
+
+int ata_read_sectors(uint32_t lba, uint32_t count, void *buffer)
 {
     uint16_t *buf = (uint16_t *)buffer;
     int result = -1;
 
+    if (!ata_range_ok(lba, count))
+        return -1;
+
     kmutex_lock(&ata_lock);
     uint32_t flags = irq_save();
 
-    if (ata_issue(lba, ATA_CMD_READ) != 0)
+    if (ata_issue(lba, count, ATA_CMD_READ) != 0)
         goto out;
 
-    /* The drive raises IRQ14 once the sector is in its buffer. */
-    ata_wait_irq();
+    for (uint32_t s = 0; s < count; s++)
+    {
+        /* IRQ14 once each sector is in the drive's buffer. */
+        if (ata_wait_irq() != 0 || ata_wait_drq() != 0)
+            goto out;
 
-    if (ata_wait_drq() != 0)
-        goto out;
+        for (int i = 0; i < 256; i++)
+            *buf++ = inw(ATA_DATA);
 
-    for (int i = 0; i < 256; i++)
-        buf[i] = inw(ATA_DATA);
+        /* Give the status register 400 ns to show the next sector's state. */
+        ata_delay();
+    }
 
     result = 0;
 
 out:
+    if (result != 0)
+        ata_soft_reset();
+
     irq_restore(flags);
     kmutex_unlock(&ata_lock);
 
     if (result != 0)
-        klog("[ata] read of LBA %u failed\n", lba);
+        klog("[ata] read of LBA %u (+%u) failed\n", lba, count);
 
     return result;
 }
 
-int ata_write_sector(uint32_t lba, const void *buffer)
+int ata_write_sectors(uint32_t lba, uint32_t count, const void *buffer)
 {
     const uint16_t *buf = (const uint16_t *)buffer;
     int result = -1;
 
+    if (!ata_range_ok(lba, count))
+        return -1;
+
     kmutex_lock(&ata_lock);
     uint32_t flags = irq_save();
 
-    if (ata_issue(lba, ATA_CMD_WRITE) != 0)
+    if (ata_issue(lba, count, ATA_CMD_WRITE) != 0)
         goto out;
 
-    /* PIO write: no IRQ before the data, the drive just asks for it (DRQ). */
-    if (ata_wait_drq() != 0)
-        goto out;
+    for (uint32_t s = 0; s < count; s++)
+    {
+        /* PIO write: no IRQ before the data, the drive just asks for it (DRQ). */
+        if (ata_wait_drq() != 0)
+            goto out;
 
-    for (int i = 0; i < 256; i++)
-        outw(ATA_DATA, buf[i]);
+        for (int i = 0; i < 256; i++)
+            outw(ATA_DATA, *buf++);
 
-    /* IRQ14 again when the sector has been written. */
-    ata_wait_irq();
+        ata_delay();
+
+        /* IRQ14 again when the sector has been written. */
+        if (ata_wait_irq() != 0)
+            goto out;
+    }
 
     if (ata_wait_busy() != 0)
         goto out;
@@ -229,11 +300,24 @@ int ata_write_sector(uint32_t lba, const void *buffer)
     result = (inb(ATA_STATUS) & (ATA_SR_ERR | ATA_SR_DF)) ? -1 : 0;
 
 out:
+    if (result != 0)
+        ata_soft_reset();
+
     irq_restore(flags);
     kmutex_unlock(&ata_lock);
 
     if (result != 0)
-        klog("[ata] write of LBA %u failed\n", lba);
+        klog("[ata] write of LBA %u (+%u) failed\n", lba, count);
 
     return result;
+}
+
+int ata_read_sector(uint32_t lba, void *buffer)
+{
+    return ata_read_sectors(lba, 1, buffer);
+}
+
+int ata_write_sector(uint32_t lba, const void *buffer)
+{
+    return ata_write_sectors(lba, 1, buffer);
 }

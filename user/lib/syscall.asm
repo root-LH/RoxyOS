@@ -53,3 +53,4 @@ SYSCALL fstat,     27, 2    ; fd, &st
 SYSCALL dup,       24, 1    ; fd
 SYSCALL dup2,      25, 2    ; fd, newfd
 SYSCALL pipe,      26, 1    ; int fds[2]
+SYSCALL sys_clock, 28, 0    ; -> seconds since 1970

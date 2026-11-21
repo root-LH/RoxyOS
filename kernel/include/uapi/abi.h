@@ -37,8 +37,9 @@
 #define SYS_DUP2      25  /* dup2(fd, newfd) -> newfd                       */
 #define SYS_PIPE      26  /* pipe(int fds[2]): fds[0] read, fds[1] write    */
 #define SYS_FSTAT     27  /* fstat(fd, &st)                                 */
+#define SYS_CLOCK     28  /* clock() -> seconds since 1970 (RTC, local time) */
 
-#define SYSCALL_COUNT 28
+#define SYSCALL_COUNT 29
 
 /* Standard file descriptors (the console) */
 #define STDIN_FILENO  0

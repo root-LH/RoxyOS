@@ -114,6 +114,92 @@ int bcache_write(uint32_t lba, const void *buf)
     return result;
 }
 
+/*
+ * Bulk reads skip the cache: the disk always has the newest data
+ * (write-through), and a large sequential read would only push out the
+ * small metadata sectors the cache is good at. Cached sectors are still
+ * copied from memory; each run of uncached ones is one ATA command.
+ */
+int bcache_read_blocks(uint32_t lba, uint32_t count, void *buf)
+{
+    uint8_t *out = (uint8_t *)buf;
+    int result = 0;
+
+    kmutex_lock(&bcache_lock);
+
+    uint32_t i = 0;
+
+    while (i < count)
+    {
+        bcache_entry_t *e = find(lba + i);
+
+        if (e)
+        {
+            stats.hits++;
+            e->last_use = ++clock;
+            memcpy(out + i * ATA_SECTOR_SIZE, e->data, ATA_SECTOR_SIZE);
+            i++;
+            continue;
+        }
+
+        uint32_t run = 1;
+
+        while (i + run < count && run < ATA_MAX_SECTORS && !find(lba + i + run))
+            run++;
+
+        stats.misses += run;
+        stats.bulk++;
+
+        if (ata_read_sectors(lba + i, run, out + i * ATA_SECTOR_SIZE) != 0)
+        {
+            result = -1;
+            break;
+        }
+
+        i += run;
+    }
+
+    kmutex_unlock(&bcache_lock);
+
+    return result;
+}
+
+/* Bulk write straight to the disk; cached copies of those sectors are updated. */
+int bcache_write_blocks(uint32_t lba, uint32_t count, const void *buf)
+{
+    const uint8_t *in = (const uint8_t *)buf;
+    int result = 0;
+
+    kmutex_lock(&bcache_lock);
+
+    for (uint32_t i = 0; i < count && result == 0; i += ATA_MAX_SECTORS)
+    {
+        uint32_t run = count - i < ATA_MAX_SECTORS ? count - i : ATA_MAX_SECTORS;
+
+        stats.writes += run;
+        stats.bulk++;
+
+        result = ata_write_sectors(lba + i, run, in + i * ATA_SECTOR_SIZE);
+    }
+
+    for (uint32_t i = 0; i < count; i++)
+    {
+        bcache_entry_t *e = find(lba + i);
+
+        if (!e)
+            continue;
+
+        if (result == 0)
+            memcpy(e->data, in + i * ATA_SECTOR_SIZE, ATA_SECTOR_SIZE);
+        else
+            e->valid = 0;   /* unknown after a failed write */
+    }
+
+    kmutex_unlock(&bcache_lock);
+
+    return result;
+}
+
 void bcache_invalidate(void)
 {
     kmutex_lock(&bcache_lock);

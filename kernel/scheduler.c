@@ -1,5 +1,6 @@
 #include "include/scheduler.h"
 #include "include/pit.h"
+#include "include/wait.h"
 
 #include "include/printk.h"
 
@@ -126,6 +127,12 @@ void scheduler_wakeup(void)
     for (int i = 0; i < process_count; i++)
     {
         process_t *proc = processes[i];
+
+        if (proc->state == PROCESS_WAITING)
+        {
+            wait_queue_check_timeout(proc, now);
+            continue;
+        }
 
         if (proc->state != PROCESS_BLOCKED)
             continue;

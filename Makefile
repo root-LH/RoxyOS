@@ -55,8 +55,10 @@ USER_LDFLAGS    = -m elf_i386 -T user/linker.ld -s
 # gdb 포트. 이 PC에서는 기본값 1234가 열리지 않아서 26000을 씀 (make debug GDB_PORT=1234 처럼 변경 가능)
 GDB_PORT ?= 26000
 
+# -rtc base=localtime: CMOS 시계를 호스트의 현지 시간으로 (date, time())
 QEMU_FLAGS = -drive format=raw,file=$(BUILD)/os.img \
              -no-reboot \
+             -rtc base=localtime \
              -serial stdio
 
 .PHONY: all user run debug gdb clean

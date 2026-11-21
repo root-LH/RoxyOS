@@ -11,6 +11,7 @@
 #include "include/memory.h"
 #include "include/string.h"
 #include "include/elf_loader.h"
+#include "include/rtc.h"
 
 /* Largest transfer of one read/write call; callers loop for more. */
 #define IO_CHUNK 4096
@@ -317,6 +318,13 @@ static int32_t sys_time(registers_t *r)
     return (int32_t)(pit_get_ticks() * (1000 / PIT_HZ));
 }
 
+static int32_t sys_clock(registers_t *r)
+{
+    (void)r;
+
+    return (int32_t)rtc_now();
+}
+
 static int32_t sys_fork(registers_t *r)
 {
     return process_fork(r);
@@ -497,6 +505,7 @@ static const syscall_fn syscall_table[SYSCALL_COUNT] =
     [SYS_DUP2]    = sys_dup2,
     [SYS_PIPE]    = sys_pipe,
     [SYS_FSTAT]   = sys_fstat,
+    [SYS_CLOCK]   = sys_clock,
 };
 
 void syscall_handler(registers_t *r)

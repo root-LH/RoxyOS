@@ -48,6 +48,14 @@ static int tty_read(char *buf, uint32_t len)
             continue;
         }
 
+        /* Ctrl+D: end of file on an empty line, otherwise hand over the line so far. */
+        if (c == KEY_CTRL('D'))
+        {
+            if (n == 0)
+                return 0;
+            break;
+        }
+
         /* Arrow keys have no meaning in a plain line. */
         if (c >= 0x80)
             continue;

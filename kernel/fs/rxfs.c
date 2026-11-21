@@ -340,6 +340,56 @@ static int free_blocks(rxfs_t *rx, inode_t *inode)
 /* File data                                                           */
 /* ------------------------------------------------------------------ */
 
+/* Longest run moved by one bulk transfer (64 KB). */
+#define RXFS_MAX_RUN 128
+
+/*
+ * How many of the file blocks fb, fb+1, ... (at most max) are stored in
+ * disk blocks first, first+1, ... (first is fb's block). With alloc, the
+ * missing ones are allocated as it goes; allocation follows alloc_hint,
+ * so a file written in order usually gets consecutive blocks. The run
+ * ends at the first block that is somewhere else.
+ */
+static uint32_t contiguous_run(rxfs_t *rx, inode_t *inode, uint32_t fb,
+                               uint32_t first, uint32_t max, int alloc)
+{
+    uint32_t n = 1;
+
+    if (max > RXFS_MAX_RUN)
+        max = RXFS_MAX_RUN;
+
+    while (n < max)
+    {
+        /* Peek first: never allocate a block the run would not use. */
+        uint32_t b = bmap(rx, inode, fb + n, 0);
+
+        if (!b && alloc)
+        {
+            if (rx->alloc_hint != first + n)
+                break;
+
+            b = bmap(rx, inode, fb + n, 1);
+        }
+
+        if (b != first + n)
+            break;
+
+        n++;
+    }
+
+    return n;
+}
+
+static int blk_read_run(rxfs_t *rx, uint32_t block, uint32_t n, void *buf)
+{
+    return bcache_read_blocks(rx->start + block, n, buf);
+}
+
+static int blk_write_run(rxfs_t *rx, uint32_t block, uint32_t n, const void *buf)
+{
+    return bcache_write_blocks(rx->start + block, n, buf);
+}
+
 static int data_read(rxfs_t *rx, inode_t *inode, uint32_t offset, void *buf, uint32_t len)
 {
     if (offset >= inode->size)
@@ -361,6 +411,22 @@ static int data_read(rxfs_t *rx, inode_t *inode, uint32_t offset, void *buf, uin
             chunk = len - done;
 
         uint32_t b = bmap(rx, inode, pos / RXFS_BLOCK_SIZE, 0);
+
+        /* Whole blocks that sit next to each other on disk: one transfer. */
+        if (b && in == 0 && len - done >= RXFS_BLOCK_SIZE)
+        {
+            uint32_t n = contiguous_run(rx, inode, pos / RXFS_BLOCK_SIZE, b,
+                                        (len - done) / RXFS_BLOCK_SIZE, 0);
+
+            if (n > 1)
+            {
+                if (blk_read_run(rx, b, n, (uint8_t *)buf + done) != 0)
+                    return -1;
+
+                done += n * RXFS_BLOCK_SIZE;
+                continue;
+            }
+        }
 
         if (!b)
             memset(block, 0, sizeof(block));        /* hole */
@@ -396,6 +462,21 @@ static int data_write(rxfs_t *rx, inode_t *inode, uint32_t offset,
 
         if (!b)
             break;      /* disk full: report what was written */
+
+        if (in == 0 && len - done >= RXFS_BLOCK_SIZE)
+        {
+            uint32_t n = contiguous_run(rx, inode, pos / RXFS_BLOCK_SIZE, b,
+                                        (len - done) / RXFS_BLOCK_SIZE, 1);
+
+            if (n > 1)
+            {
+                if (blk_write_run(rx, b, n, (const uint8_t *)buf + done) != 0)
+                    break;
+
+                done += n * RXFS_BLOCK_SIZE;
+                continue;
+            }
+        }
 
         /* Partial block: keep the bytes around the new ones. */
         if (chunk < RXFS_BLOCK_SIZE && blk_read(rx, b, block) != 0)

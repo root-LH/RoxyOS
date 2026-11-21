@@ -20,6 +20,8 @@
 #include "include/idle.h"
 #include "include/paging.h"
 #include "include/serial.h"
+#include "include/rtc.h"
+#include "include/pci.h"
 
 extern uint8_t stack_top;
 
@@ -47,6 +49,8 @@ void kernel_main(void)
 
     /* Drivers */
     keyboard_init();
+    rtc_init();
+    pci_init();
     ata_init();
 
     /* Kernel Subsystem */

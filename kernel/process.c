@@ -295,11 +295,16 @@ int process_signal_kill(uint32_t pid)
 
     proc->killed = 1;
 
-    if (proc == current_process || (proc->trapframe->cs & 3) == 3)
+    /*
+     * The latest trap frame says where the process is. For the caller of
+     * kill() it is the int 0x80 frame (user mode); from an IRQ it is the
+     * interrupted context, which may be in the middle of a syscall.
+     */
+    if ((proc->trapframe->cs & 3) == 3)
     {
         /*
          * Running or preempted in user mode: it holds no kernel state, so
-         * it can go right away. (Ourselves: the syscall path switches away.)
+         * it can go right away. (Ourselves: the trap path switches away.)
          */
         process_kill(proc, EXIT_KILLED);
     }
@@ -315,6 +320,55 @@ int process_signal_kill(uint32_t pid)
     irq_restore(flags);
 
     return 0;
+}
+
+/* The program the shell is waiting for; Ctrl+C goes to it. */
+static uint32_t foreground_pid = 0;
+
+void process_set_foreground(uint32_t pid)
+{
+    foreground_pid = pid;
+}
+
+/* Is proc the foreground process or one of its descendants? */
+static int in_foreground(process_t *proc)
+{
+    for (int depth = 0; proc && depth < MAX_PROCESS; depth++)
+    {
+        if (proc->pid == foreground_pid)
+            return 1;
+
+        proc = proc->parent;
+    }
+
+    return 0;
+}
+
+int process_interrupt_foreground(void)
+{
+    uint32_t flags = irq_save();
+    uint32_t victims[MAX_PROCESS];
+    int count = 0;
+
+    if (foreground_pid)
+    {
+        /* Collect first: killing a parent orphans its children (parent = 0). */
+        for (int i = 0; i < MAX_PROCESS; i++)
+        {
+            process_t *proc = &process_table[i];
+
+            if (proc->state != PROCESS_UNUSED && proc->state != PROCESS_EXITED &&
+                proc->type == PROCESS_USER && in_foreground(proc))
+                victims[count++] = proc->pid;
+        }
+    }
+
+    for (int i = 0; i < count; i++)
+        process_signal_kill(victims[i]);
+
+    irq_restore(flags);
+
+    return count;
 }
 
 int32_t process_sbrk(process_t *proc, int32_t increment)

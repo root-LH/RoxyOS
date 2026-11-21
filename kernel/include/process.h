@@ -61,6 +61,9 @@ typedef struct process
     wait_queue_t *waiting_on;
     struct process *wait_next;
     int wait_interruptible;
+    /* wait_queue_sleep_timeout(): tick to give up at (0 = never). */
+    uint32_t wait_deadline;
+    int wait_timed_out;
 
     /* Woken when one of this process's children exits. */
     wait_queue_t child_wq;
@@ -115,6 +118,14 @@ int process_wait(process_t *child);
  * woken). Returns 0, or -1 if there is no such user process.
  */
 int process_signal_kill(uint32_t pid);
+
+/*
+ * The process that owns the console (the program the shell is running),
+ * 0 = none. process_interrupt_foreground() (Ctrl+C, safe from IRQs) kills
+ * it and every user process descended from it; returns how many.
+ */
+void process_set_foreground(uint32_t pid);
+int process_interrupt_foreground(void);
 
 /*
  * Moves proc's heap break by increment bytes, mapping zeroed pages or

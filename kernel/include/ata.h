@@ -13,11 +13,20 @@ uint32_t ata_sector_count(void);
 /* IRQ14 */
 void ata_irq_handler(void);
 
-/*
- * One sector, PIO. The caller sleeps until the drive's IRQ (polling before
- * the scheduler starts). Returns 0, or -1 on a drive error or timeout.
- */
+/* Sectors one READ/WRITE SECTORS command can move (count register 0 = 256). */
+#define ATA_MAX_SECTORS 256
 
+/*
+ * PIO transfer of count (1..ATA_MAX_SECTORS) consecutive sectors with one
+ * command. The caller sleeps on IRQ14 between sectors (polling before the
+ * scheduler starts); if the IRQ does not come within a few seconds the
+ * drive is checked and reset when hung. Returns 0, or -1 on a drive
+ * error, timeout, or a range outside the disk.
+ */
+int ata_read_sectors(uint32_t lba, uint32_t count, void *buffer);
+int ata_write_sectors(uint32_t lba, uint32_t count, const void *buffer);
+
+/* One sector. */
 int ata_read_sector(uint32_t lba, void *buffer);
 int ata_write_sector(uint32_t lba, const void *buffer);
 

@@ -2,6 +2,7 @@
 #include "../include/memory.h"
 #include "../include/string.h"
 #include "../include/cpu.h"
+#include "../include/process.h"
 
 pipe_t *pipe_create(void)
 {
@@ -59,7 +60,21 @@ int pipe_write(pipe_t *pipe, const void *buf, uint32_t len)
     while (done < len)
     {
         if (pipe->readers == 0)
+        {
+            /*
+             * Nobody will ever read this: like SIGPIPE, a user process
+             * writing here ends (EXIT_PIPE) when its write() returns, so
+             * "producer | head" does not keep the producer running.
+             */
+            process_t *self = process_current();
+
+            if (self && self->type == PROCESS_USER && !self->killed)
+            {
+                self->killed = 1;
+                self->kill_code = EXIT_PIPE;
+            }
             break;
+        }
 
         if (pipe->count == PIPE_SIZE)
         {

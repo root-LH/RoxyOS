@@ -40,6 +40,16 @@ void *sbrk(int increment);
 /* Ends process pid (exit code EXIT_KILLED). */
 int kill(pid_t pid);
 
+/*
+ * Process groups. Ctrl+C kills every process in the console's foreground
+ * group; with none (0) it arrives as a key (KEY_CTRL('C')) instead.
+ * setpgid(0, 0) makes the caller lead a group of its own.
+ */
+int setpgid(pid_t pid, pid_t pgid);
+pid_t getpgid(pid_t pid);
+int tcsetpgrp(pid_t pgid);
+pid_t tcgetpgrp(void);
+
 int yield(void);
 
 /* Milliseconds since boot. */
@@ -54,7 +64,10 @@ int chdir(const char *path);
 /* Copies the working directory into buf; returns buf, or NULL if it does not fit. */
 char *getcwd(char *buf, size_t size);
 
-/* One raw key from the keyboard, without echo or line editing. */
+/*
+ * One raw key from the keyboard, without echo or line editing: ASCII, or
+ * a KEY_* code (abi.h) for arrows and the like. -1 if killed while waiting.
+ */
 int getkey(void);
 
 void _exit(int code) __attribute__((noreturn));

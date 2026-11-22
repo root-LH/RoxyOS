@@ -14,6 +14,7 @@
 #include "include/rtc.h"
 #include "include/pci.h"
 #include "include/pit.h"
+#include "include/acpi.h"
 
 static void cmd_help(int argc, char **argv);
 static void cmd_clear(int argc, char **argv);
@@ -32,6 +33,8 @@ static void cmd_date(int argc, char **argv);
 static void cmd_uptime(int argc, char **argv);
 static void cmd_lspci(int argc, char **argv);
 static void cmd_reboot(int argc, char **argv);
+static void cmd_shutdown(int argc, char **argv);
+static void cmd_sh(int argc, char **argv);
 
 typedef struct
 {
@@ -69,7 +72,9 @@ static command_t commands[] =
     { "date", cmd_date },
     { "uptime", cmd_uptime },
     { "lspci", cmd_lspci },
-    { "reboot", cmd_reboot }
+    { "reboot", cmd_reboot },
+    { "shutdown", cmd_shutdown },
+    { "sh", cmd_sh }
 };
 
 static const int command_count = sizeof(commands) / sizeof(commands[0]);
@@ -198,7 +203,7 @@ static const char *shell_readline(void)
 
     while (1)
     {
-        char c = keyboard_getchar();
+        int c = (unsigned char)keyboard_getchar();
 
         if (c == KEY_LEFT)
         {
@@ -322,8 +327,46 @@ static const char *shell_readline(void)
     }
 }
 
+/*
+ * Runs a program like `run`: the shell sleeps until it exits, with the
+ * program's group in the foreground (Ctrl+C). Returns its exit code, or
+ * -1 if it could not be started.
+ */
+static int run_program(int argc, char **argv)
+{
+    /* The program gets argv[0..]: its own name first, as usual. */
+    process_t *proc = elf_spawn(argv[0], argc, argv);
+
+    if (!proc)
+        return -1;
+
+    /* A spawned program leads its own process group (pgid == pid). */
+    process_set_foreground(proc->pgid);
+    int code = process_wait(proc);
+    process_set_foreground(0);
+
+    return code;
+}
+
+#define USER_SHELL "/bin/sh"
+
+static void start_user_shell(void)
+{
+    char *argv[] = { USER_SHELL };
+    int code = run_program(1, argv);
+
+    if (code < 0)
+        kprintf("Cannot start %s; this is the kernel shell.\n", USER_SHELL);
+    else
+        kprintf("[%s exited with code %d] Kernel shell; 'sh' starts it again.\n",
+                USER_SHELL, code);
+}
+
 void shell_task(void)
 {
+    /* The user-mode shell is the normal interface; this one is the fallback. */
+    start_user_shell();
+
     while (1)
     {
         shell_print_prompt();
@@ -339,8 +382,9 @@ static void cmd_help(int argc, char **argv)
     (void)argc;
     (void)argv;
 
-    printk("Commands:\n");
-    printk("  help clear echo version ps free date uptime lspci [-v] reboot\n");
+    printk("Kernel (fallback) shell commands:\n");
+    printk("  help clear echo version ps free date uptime lspci [-v] reboot shutdown\n");
+    printk("  sh                    - Start the user shell (/bin/sh) again\n");
     printk("  run <prog> [args...]  - Run a program (bare names are searched in /bin)\n");
     printk("  kill <pid>            - Kill a user process\n");
     printk("  ls [dir]  cat <file>  touch <file>  rm <file>  stat <path>\n");
@@ -442,28 +486,25 @@ static void cmd_run(int argc, char **argv)
     if (argc < 2)
     {
         printk("Usage: run <file> [args...]\n");
+        return;
     }
-    else
-    {
-        /* The program gets argv[1..]: its own name first, as usual. */
-        process_t *proc = elf_spawn(argv[1], argc - 1, argv + 1);
 
-        if (!proc)
-        {
-            kprintf("run: cannot execute %s\n", argv[1]);
-            return;
-        }
+    int code = run_program(argc - 1, argv + 1);
 
-        /* The shell sleeps until the program exits; Ctrl+C goes to it meanwhile. */
-        process_set_foreground(proc->pid);
-        int code = process_wait(proc);
-        process_set_foreground(0);
+    if (code < 0)
+        kprintf("run: cannot execute %s\n", argv[1]);
+    else if (code == EXIT_KILLED)
+        kprintf("[%s killed]\n", argv[1]);
+    else if (code != 0)
+        kprintf("[%s exited with code %d]\n", argv[1], code);
+}
 
-        if (code == EXIT_KILLED)
-            kprintf("[%s killed]\n", argv[1]);
-        else if (code != 0)
-            kprintf("[%s exited with code %d]\n", argv[1], code);
-    }
+static void cmd_sh(int argc, char **argv)
+{
+    (void)argc;
+    (void)argv;
+
+    start_user_shell();
 }
 
 void shell_execute(const char *cmd)
@@ -705,4 +746,15 @@ static void cmd_reboot(int argc, char **argv)
 
     printk("Rebooting...\n");
     keyboard_reboot();
+}
+
+static void cmd_shutdown(int argc, char **argv)
+{
+    (void)argc;
+    (void)argv;
+
+    printk(acpi_available() ? "Powering off...\n"
+                            : "Powering off (no ACPI, trying emulator ports)...\n");
+    acpi_poweroff();
+    printk("shutdown: the machine did not power off\n");
 }

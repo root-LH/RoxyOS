@@ -38,8 +38,17 @@
 #define SYS_PIPE      26  /* pipe(int fds[2]): fds[0] read, fds[1] write    */
 #define SYS_FSTAT     27  /* fstat(fd, &st)                                 */
 #define SYS_CLOCK     28  /* clock() -> seconds since 1970 (RTC, local time) */
+#define SYS_SETPGID   29  /* setpgid(pid, pgid): 0 = self / pgid = pid      */
+#define SYS_GETPGID   30  /* getpgid(pid) -> process group, 0 = self        */
+#define SYS_TCSETPGRP 31  /* tcsetpgrp(pgid): group that gets Ctrl+C, 0 = none */
+#define SYS_TCGETPGRP 32  /* tcgetpgrp() -> foreground group (0 = none)     */
+#define SYS_PROCINFO  33  /* procinfo(slot, &info) -> 1, 0 if free, -1 past the end */
+#define SYS_MEMINFO   34  /* meminfo(&info)                                 */
+#define SYS_STATFS    35  /* statfs(path, &info)                            */
+#define SYS_PCIINFO   36  /* pciinfo(index, &info) -> 0, -1 past the end    */
+#define SYS_REBOOT    37  /* reboot(REBOOT_*), returns only on failure      */
 
-#define SYSCALL_COUNT 29
+#define SYSCALL_COUNT 38
 
 /* Standard file descriptors (the console) */
 #define STDIN_FILENO  0
@@ -91,11 +100,87 @@ struct dirent
 /* Exit code of a process ended by kill() (128 + SIGKILL, as in shells) */
 #define EXIT_KILLED 137
 
+/* Exit code of a process that wrote to a pipe nobody reads (128 + SIGPIPE) */
+#define EXIT_PIPE 141
+
 /* exec() limits: argument count and total bytes of argument strings */
 #define EXEC_MAX_ARGS  16
 #define EXEC_MAX_ARGLEN 1024
 
 /* Longest path accepted by open/stat/exec/..., including the NUL */
 #define PATH_MAX 128
+
+/* reboot() */
+#define REBOOT_RESTART  0
+#define REBOOT_POWEROFF 1   /* ACPI S5 */
+
+/* procinfo(): one process table slot */
+struct procinfo
+{
+    unsigned int pid;
+    unsigned int ppid;      /* 0 = no parent waiting for it */
+    unsigned int pgid;      /* 0 for kernel threads */
+    unsigned int user;      /* 1 = user process, 0 = kernel thread */
+    char state[8];          /* "RUNNING", "READY", "SLEEP", "WAIT", "ZOMBIE" */
+    char name[16];
+};
+
+/* meminfo(): physical frames, kernel heap and block cache */
+struct meminfo
+{
+    unsigned int page_size;
+    unsigned int total_frames;
+    unsigned int free_frames;
+    unsigned int heap_mapped;   /* bytes */
+    unsigned int heap_used;
+    unsigned int heap_free;
+    unsigned int cache_sectors;
+    unsigned int cache_hits;
+    unsigned int cache_misses;
+    unsigned int cache_writes;
+    unsigned int cache_bulk;
+};
+
+/* statfs(): usage of the file system holding a path */
+struct statfs
+{
+    unsigned int f_bsize;       /* block size in bytes */
+    unsigned int f_blocks;
+    unsigned int f_bfree;
+    unsigned int f_files;       /* inodes */
+    unsigned int f_ffree;
+    char f_type[8];             /* "rxfs", "devfs" */
+};
+
+/* pciinfo(): one PCI function found at boot */
+struct pciinfo
+{
+    unsigned char bus, slot, func, header_type;
+    unsigned short vendor_id, device_id;
+    unsigned char class_code, subclass, prog_if, revision;
+    unsigned char irq_line, irq_pin, pad[2];
+    unsigned int bar[6];
+    char class_name[32];
+    char vendor_name[24];       /* "" if unknown */
+};
+
+/*
+ * getkey() codes: printable ASCII and control codes as usual (Ctrl+letter
+ * = 1~26, Enter '
+', Backspace '', Tab '	', Esc 27), these above 0x7F.
+ */
+#define KEY_LEFT   0x81
+#define KEY_RIGHT  0x82
+#define KEY_UP     0x83
+#define KEY_DOWN   0x84
+#define KEY_HOME   0x85
+#define KEY_END    0x86
+#define KEY_DELETE 0x87
+#define KEY_PGUP   0x88
+#define KEY_PGDN   0x89
+#define KEY_INSERT 0x8A
+
+/* Ctrl+letter arrives as its control code: KEY_CTRL('C') == 3. */
+#define KEY_CTRL(c) ((c) & 0x1F)
 
 #endif

@@ -15,7 +15,7 @@ static void vga_update_cursor(void);
 
 static uint16_t vga_entry(char c)
 {
-    return ((uint16_t)current_color << 8) | c;
+    return ((uint16_t)current_color << 8) | (uint8_t)c;
 }
 
 static inline uint16_t offset(uint16_t x, uint16_t y)
@@ -28,6 +28,31 @@ void vga_set_color(
     enum vga_color background)
 {
     current_color = foreground | (background << 4);
+}
+
+uint8_t vga_get_attr(void)
+{
+    return (uint8_t)current_color;
+}
+
+void vga_set_attr(uint8_t attr)
+{
+    current_color = attr;
+}
+
+void vga_clear_cells(uint32_t from, uint32_t to)
+{
+    if (to > VGA_WIDTH * VGA_HEIGHT)
+        to = VGA_WIDTH * VGA_HEIGHT;
+
+    for (uint32_t i = from; i < to; i++)
+        VGA_MEMORY[i] = vga_entry(' ');
+}
+
+void vga_show_cursor(int visible)
+{
+    outb(0x3D4, 0x0A);
+    outb(0x3D5, visible ? 0x00 : 0x20);   /* bit 5: cursor off */
 }
 
 void vga_clear(void)
@@ -47,6 +72,37 @@ void vga_putchar(char c)
     {
         cursor_x = 0;
         cursor_y++;
+    }
+    else if (c == '\r')
+    {
+        cursor_x = 0;
+    }
+    else if (c == '\b')
+    {
+        /* Moves left without erasing, as terminals do (vga_backspace erases). */
+        if (cursor_x > 0)
+        {
+            cursor_x--;
+        }
+        else if (cursor_y > 0)
+        {
+            cursor_y--;
+            cursor_x = VGA_WIDTH - 1;
+        }
+    }
+    else if (c == '\t')
+    {
+        cursor_x = (cursor_x + 8) & ~7;
+
+        if (cursor_x >= VGA_WIDTH)
+        {
+            cursor_x = 0;
+            cursor_y++;
+        }
+    }
+    else if (c == '\a')
+    {
+        return;
     }
     else
     {

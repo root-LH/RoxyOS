@@ -3,19 +3,11 @@
 
 #define INPUT_BUFFER_SIZE 256
 
-#define KEY_LEFT  ((char)0x81)
-#define KEY_RIGHT ((char)0x82)
-#define KEY_UP    ((char)0x83)
-#define KEY_DOWN  ((char)0x84)
-#define KEY_HOME   ((char)0x85)
-#define KEY_END    ((char)0x86)
-#define KEY_DELETE ((char)0x87)
-#define KEY_PGUP   ((char)0x88)
-#define KEY_PGDN   ((char)0x89)
-#define KEY_INSERT ((char)0x8A)
-
-/* Ctrl+letter arrives as its control code: KEY_CTRL('C') == 3. */
-#define KEY_CTRL(c) ((char)((c) & 0x1F))
+/*
+ * KEY_* codes (0x81~) and KEY_CTRL() come from uapi/abi.h: they are ints,
+ * so compare them with keys read as unsigned (keyboard_read).
+ */
+#include "uapi/abi.h"
 
 /* keyboard_modifiers() bits */
 #define KEYMOD_SHIFT 0x01

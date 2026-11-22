@@ -54,3 +54,12 @@ SYSCALL dup,       24, 1    ; fd
 SYSCALL dup2,      25, 2    ; fd, newfd
 SYSCALL pipe,      26, 1    ; int fds[2]
 SYSCALL sys_clock, 28, 0    ; -> seconds since 1970
+SYSCALL setpgid,   29, 2    ; pid, pgid (0 = self / own pid)
+SYSCALL getpgid,   30, 1    ; pid (0 = self)
+SYSCALL tcsetpgrp, 31, 1    ; pgid that gets Ctrl+C (0 = none)
+SYSCALL tcgetpgrp, 32, 0
+SYSCALL procinfo,  33, 2    ; slot, &info -> 1 / 0 free / -1 past the end
+SYSCALL meminfo,   34, 1    ; &info
+SYSCALL statfs,    35, 2    ; path, &info
+SYSCALL pciinfo,   36, 2    ; index, &info
+SYSCALL reboot,    37, 1    ; REBOOT_RESTART / REBOOT_POWEROFF

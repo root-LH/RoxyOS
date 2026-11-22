@@ -12,6 +12,10 @@
 #include "include/string.h"
 #include "include/elf_loader.h"
 #include "include/rtc.h"
+#include "include/bcache.h"
+#include "include/pci.h"
+#include "include/acpi.h"
+#include "include/cpu.h"
 
 /* Largest transfer of one read/write call; callers loop for more. */
 #define IO_CHUNK 4096
@@ -475,6 +479,182 @@ static int32_t sys_pipe(registers_t *r)
     return 0;
 }
 
+static int32_t sys_setpgid(registers_t *r)
+{
+    return process_setpgid(r->ebx, r->ecx);
+}
+
+static int32_t sys_getpgid(registers_t *r)
+{
+    process_t *proc = r->ebx ? process_find(r->ebx) : process_current();
+
+    if (!proc || proc->type != PROCESS_USER)
+        return -1;
+
+    return (int32_t)proc->pgid;
+}
+
+static int32_t sys_tcsetpgrp(registers_t *r)
+{
+    process_set_foreground(r->ebx);
+
+    return 0;
+}
+
+static int32_t sys_tcgetpgrp(registers_t *r)
+{
+    (void)r;
+
+    return (int32_t)process_get_foreground();
+}
+
+/* Copies at most size - 1 bytes of src and always terminates dst. */
+static void copy_name(char *dst, const char *src, uint32_t size)
+{
+    uint32_t i = 0;
+
+    for (; src && src[i] && i < size - 1; i++)
+        dst[i] = src[i];
+
+    dst[i] = '\0';
+}
+
+static int32_t sys_procinfo(registers_t *r)
+{
+    int slot = (int)r->ebx;
+
+    if (slot < 0 || slot >= MAX_PROCESS)
+        return -1;
+
+    struct procinfo info;
+    uint32_t flags = irq_save();
+    process_t *proc = process_get_slot(slot);
+
+    memset(&info, 0, sizeof(info));
+
+    int used = proc->state != PROCESS_UNUSED;
+
+    if (used)
+    {
+        info.pid = proc->pid;
+        info.ppid = proc->parent ? proc->parent->pid : 0;
+        info.pgid = proc->pgid;
+        info.user = proc->type == PROCESS_USER;
+        copy_name(info.state, process_state_name(proc->state), sizeof(info.state));
+        copy_name(info.name, proc->name, sizeof(info.name));
+    }
+
+    irq_restore(flags);
+
+    if (used && to_caller(r->ecx, &info, sizeof(info)) != 0)
+        return -1;
+
+    return used;
+}
+
+static int32_t sys_meminfo(registers_t *r)
+{
+    struct meminfo info;
+    heap_stats_t heap;
+    bcache_stats_t cache;
+
+    heap_get_stats(&heap);
+    bcache_get_stats(&cache);
+
+    info.page_size = PAGE_SIZE;
+    info.total_frames = pmm_total_frame_count();
+    info.free_frames = pmm_free_frame_count();
+    info.heap_mapped = heap.mapped;
+    info.heap_used = heap.used;
+    info.heap_free = heap.free;
+    info.cache_sectors = BCACHE_ENTRIES;
+    info.cache_hits = cache.hits;
+    info.cache_misses = cache.misses;
+    info.cache_writes = cache.writes;
+    info.cache_bulk = cache.bulk;
+
+    return to_caller(r->ebx, &info, sizeof(info));
+}
+
+static int32_t sys_statfs(registers_t *r)
+{
+    char path[PATH_MAX];
+    inode_t *inode;
+    statfs_t fs;
+
+    if (path_from_caller(path, r->ebx) != 0 || vfs_lookup(path, &inode) != 0)
+        return -1;
+
+    struct statfs info;
+
+    memset(&info, 0, sizeof(info));
+    copy_name(info.f_type, inode->fs->type, sizeof(info.f_type));
+
+    int ok = inode->fs->ops->statfs(inode->fs, &fs) == 0;
+
+    inode_put(inode);
+
+    if (!ok)
+        return -1;
+
+    info.f_bsize = fs.block_size;
+    info.f_blocks = fs.total_blocks;
+    info.f_bfree = fs.free_blocks;
+    info.f_files = fs.total_inodes;
+    info.f_ffree = fs.free_inodes;
+
+    return to_caller(r->ecx, &info, sizeof(info));
+}
+
+static int32_t sys_pciinfo(registers_t *r)
+{
+    const pci_device_t *d = pci_get_device((int)r->ebx);
+
+    if ((int)r->ebx < 0 || !d)
+        return -1;
+
+    struct pciinfo info;
+
+    memset(&info, 0, sizeof(info));
+
+    info.bus = d->bus;
+    info.slot = d->slot;
+    info.func = d->func;
+    info.header_type = d->header_type;
+    info.vendor_id = d->vendor_id;
+    info.device_id = d->device_id;
+    info.class_code = d->class_code;
+    info.subclass = d->subclass;
+    info.prog_if = d->prog_if;
+    info.revision = d->revision;
+    info.irq_line = d->irq_line;
+    info.irq_pin = d->irq_pin;
+    memcpy(info.bar, d->bar, sizeof(info.bar));
+    copy_name(info.class_name, pci_class_name(d), sizeof(info.class_name));
+    copy_name(info.vendor_name, pci_vendor_name(d->vendor_id), sizeof(info.vendor_name));
+
+    return to_caller(r->ecx, &info, sizeof(info));
+}
+
+static int32_t sys_reboot(registers_t *r)
+{
+    switch (r->ebx)
+    {
+        case REBOOT_RESTART:
+            kprintf("Rebooting...\n");
+            keyboard_reboot();
+
+        case REBOOT_POWEROFF:
+            kprintf("Powering off...\n");
+            acpi_poweroff();
+            kprintf("shutdown: the machine did not power off\n");
+            return -1;
+
+        default:
+            return -1;
+    }
+}
+
 static const syscall_fn syscall_table[SYSCALL_COUNT] =
 {
     [SYS_WRITE]   = sys_write,
@@ -506,6 +686,15 @@ static const syscall_fn syscall_table[SYSCALL_COUNT] =
     [SYS_PIPE]    = sys_pipe,
     [SYS_FSTAT]   = sys_fstat,
     [SYS_CLOCK]   = sys_clock,
+    [SYS_SETPGID]   = sys_setpgid,
+    [SYS_GETPGID]   = sys_getpgid,
+    [SYS_TCSETPGRP] = sys_tcsetpgrp,
+    [SYS_TCGETPGRP] = sys_tcgetpgrp,
+    [SYS_PROCINFO]  = sys_procinfo,
+    [SYS_MEMINFO]   = sys_meminfo,
+    [SYS_STATFS]    = sys_statfs,
+    [SYS_PCIINFO]   = sys_pciinfo,
+    [SYS_REBOOT]    = sys_reboot,
 };
 
 void syscall_handler(registers_t *r)
@@ -531,5 +720,5 @@ void syscall_handler(registers_t *r)
      */
     if (is_user(proc) && (r->cs & 3) == 3 && proc->killed &&
         proc->state != PROCESS_EXITED)
-        process_kill(proc, EXIT_KILLED);
+        process_kill(proc, proc->kill_code ? proc->kill_code : EXIT_KILLED);
 }

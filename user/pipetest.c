@@ -80,8 +80,23 @@ static void broken(void)
 
     pipe(fds);
     close(fds[0]);
-    check("write with no reader fails", write(fds[1], "x", 1) == -1);
+    fflush(stdout);
+
+    /* Like SIGPIPE: the writer ends (EXIT_PIPE) instead of seeing -1. */
+    int pid = fork();
+
+    if (pid == 0)
+    {
+        write(fds[1], "x", 1);
+        _exit(0);
+    }
+
     close(fds[1]);
+
+    int status = 0;
+
+    waitpid(pid, &status, 0);
+    check("write with no reader ends the writer (EXIT_PIPE)", status == EXIT_PIPE);
 }
 
 static void capture(void)

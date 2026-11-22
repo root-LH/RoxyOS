@@ -44,4 +44,13 @@ void vga_putentry_at(char c, uint16_t x, uint16_t y);
 
 void vga_scroll(void);
 
+/* Attribute byte (foreground | background << 4) used for new characters. */
+uint8_t vga_get_attr(void);
+void vga_set_attr(uint8_t attr);
+
+/* Blanks cells [from, to) (index = y * VGA_WIDTH + x) in the current colors. */
+void vga_clear_cells(uint32_t from, uint32_t to);
+
+void vga_show_cursor(int visible);
+
 #endif

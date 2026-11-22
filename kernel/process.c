@@ -107,6 +107,7 @@ static process_t *process_alloc(process_type_t type)
         memset(proc, 0, sizeof(process_t));
 
         proc->pid = type == PROCESS_USER ? next_user_pid++ : next_kernel_pid++;
+        proc->pgid = type == PROCESS_USER ? proc->pid : 0;
         proc->type = type;
         proc->state = PROCESS_READY;
 
@@ -208,6 +209,7 @@ int process_fork(registers_t *frame)
     child->heap_start = parent->heap_start;
     child->brk = parent->brk;
     child->parent = parent;
+    child->pgid = parent->pgid;
     memcpy(child->name, parent->name, PROCESS_NAME_LEN);
     strcpy(child->cwd, parent->cwd);
 
@@ -295,6 +297,9 @@ int process_signal_kill(uint32_t pid)
 
     proc->killed = 1;
 
+    if (!proc->kill_code)
+        proc->kill_code = EXIT_KILLED;
+
     /*
      * The latest trap frame says where the process is. For the caller of
      * kill() it is the int 0x80 frame (user mode); from an IRQ it is the
@@ -322,26 +327,17 @@ int process_signal_kill(uint32_t pid)
     return 0;
 }
 
-/* The program the shell is waiting for; Ctrl+C goes to it. */
-static uint32_t foreground_pid = 0;
+/* The group the shell is waiting for; Ctrl+C goes to it. */
+static uint32_t foreground_pgid = 0;
 
-void process_set_foreground(uint32_t pid)
+void process_set_foreground(uint32_t pgid)
 {
-    foreground_pid = pid;
+    foreground_pgid = pgid;
 }
 
-/* Is proc the foreground process or one of its descendants? */
-static int in_foreground(process_t *proc)
+uint32_t process_get_foreground(void)
 {
-    for (int depth = 0; proc && depth < MAX_PROCESS; depth++)
-    {
-        if (proc->pid == foreground_pid)
-            return 1;
-
-        proc = proc->parent;
-    }
-
-    return 0;
+    return foreground_pgid;
 }
 
 int process_interrupt_foreground(void)
@@ -350,15 +346,15 @@ int process_interrupt_foreground(void)
     uint32_t victims[MAX_PROCESS];
     int count = 0;
 
-    if (foreground_pid)
+    if (foreground_pgid)
     {
-        /* Collect first: killing a parent orphans its children (parent = 0). */
+        /* Collect first: process_signal_kill() changes the table. */
         for (int i = 0; i < MAX_PROCESS; i++)
         {
             process_t *proc = &process_table[i];
 
             if (proc->state != PROCESS_UNUSED && proc->state != PROCESS_EXITED &&
-                proc->type == PROCESS_USER && in_foreground(proc))
+                proc->type == PROCESS_USER && proc->pgid == foreground_pgid)
                 victims[count++] = proc->pid;
         }
     }
@@ -369,6 +365,29 @@ int process_interrupt_foreground(void)
     irq_restore(flags);
 
     return count;
+}
+
+int process_setpgid(uint32_t pid, uint32_t pgid)
+{
+    process_t *self = current_process;
+
+    if (!self || self->type != PROCESS_USER)
+        return -1;
+
+    uint32_t flags = irq_save();
+    process_t *proc = pid ? process_find(pid) : self;
+    int result = -1;
+
+    if (proc && proc->type == PROCESS_USER && proc->state != PROCESS_EXITED &&
+        (proc == self || proc->parent == self))
+    {
+        proc->pgid = pgid ? pgid : proc->pid;
+        result = 0;
+    }
+
+    irq_restore(flags);
+
+    return result;
 }
 
 int32_t process_sbrk(process_t *proc, int32_t increment)

@@ -216,7 +216,7 @@ static void extended_key(uint8_t scancode)
 }
 
 /* Keypad keys without 0xE0 (NumLock off): the same navigation keys. */
-static char keypad_key(uint8_t scancode)
+static unsigned char keypad_key(uint8_t scancode)
 {
     switch (scancode)
     {
@@ -268,7 +268,7 @@ void keyboard_handler(void)
     if (scancode & 0x80)
         return;
 
-    char c = keypad_key(scancode);
+    unsigned char c = keypad_key(scancode);
 
     if (c == KEY_DELETE && (ctrl_left || ctrl_right) && (alt_left || alt_right))
         keyboard_reboot();

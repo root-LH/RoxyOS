@@ -57,6 +57,13 @@ typedef struct process
     /* Creator that will collect the exit code; 0 = reaped automatically. */
     struct process *parent;
 
+    /*
+     * Process group (user processes; 0 for kernel threads). A new program
+     * starts its own group (pgid = pid), fork() keeps the parent's. Ctrl+C
+     * goes to the whole foreground group (process_set_foreground).
+     */
+    uint32_t pgid;
+
     /* Wait queue state (see wait.h). */
     wait_queue_t *waiting_on;
     struct process *wait_next;
@@ -70,6 +77,8 @@ typedef struct process
 
     /* Set by a kill request; the process exits before returning to user mode. */
     int killed;
+    /* Exit code for that exit: EXIT_KILLED, or EXIT_PIPE (broken pipe). */
+    int kill_code;
 
     /* File descriptors (see file.h); closed when the process exits. */
     struct file *files[PROCESS_MAX_FD];
@@ -120,12 +129,20 @@ int process_wait(process_t *child);
 int process_signal_kill(uint32_t pid);
 
 /*
- * The process that owns the console (the program the shell is running),
+ * The process group that owns the console (the job the shell is running),
  * 0 = none. process_interrupt_foreground() (Ctrl+C, safe from IRQs) kills
- * it and every user process descended from it; returns how many.
+ * every user process in it and returns how many; with none, Ctrl+C is
+ * delivered as a key.
  */
-void process_set_foreground(uint32_t pid);
+void process_set_foreground(uint32_t pgid);
+uint32_t process_get_foreground(void);
 int process_interrupt_foreground(void);
+
+/*
+ * setpgid(): moves pid (0 = the caller) into group pgid (0 = its own pid).
+ * Only the caller itself or one of its children. Returns 0 or -1.
+ */
+int process_setpgid(uint32_t pid, uint32_t pgid);
 
 /*
  * Moves proc's heap break by increment bytes, mapping zeroed pages or
